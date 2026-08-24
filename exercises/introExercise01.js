@@ -29,11 +29,25 @@ scene.add(plane);
 
 // create a cube
 let cubeGeometry = new THREE.BoxGeometry(4, 4, 4);
-let cube = new THREE.Mesh(cubeGeometry, material);
-// position the cube
-cube.position.set(0.0, 2.0, 0.0);
-// add the cube to the scene
-scene.add(cube);
+//let cube = new THREE.Mesh(cubeGeometry, material);
+
+let i = 0;
+let cube = [];
+for (let x = -7; x <= 7; x += 7) {
+
+    for (let z = -7; z <= 7; z += 7) {
+
+        cube[i] = new THREE.Mesh(cubeGeometry, material);
+
+        cube[i].position.x = x;
+        cube[i].position.y = 2;
+        cube[i].position.z = z;
+
+        scene.add(cube[i]);
+
+        i++;
+    }
+}
 
 // Use this to show information onscreen
 let controls = new InfoBox();
