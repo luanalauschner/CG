@@ -1,0 +1,52 @@
+/* =====================================================================
+   T1 - Estilo da MIRA (crosshair)
+
+   A mira fica sempre no meio da tela, em posição fixa, sobreposta ao
+   canvas. 'pointer-events: none' garante que ela nunca capture cliques
+   do mouse (que precisam chegar ao sistema de disparos).
+   ===================================================================== */
+
+#crosshair {
+   position: fixed;
+   left: 50%;
+   top: 50%;
+   width: 24px;
+   height: 24px;
+   margin-left: -12px;   /* metade da largura -> centraliza de fato */
+   margin-top: -12px;    /* metade da altura                        */
+   pointer-events: none;
+   z-index: 20;
+   display: none;        /* só aparece quando o mouse está capturado */
+}
+
+#crosshair span {
+   position: absolute;
+   background: rgba(255, 255, 255, 0.95);
+   box-shadow: 0 0 3px rgba(0, 0, 0, 0.95);
+}
+
+/* traço horizontal */
+#crosshair .ch-h {
+   left: 0;
+   top: 11px;
+   width: 24px;
+   height: 2px;
+}
+
+/* traço vertical */
+#crosshair .ch-v {
+   top: 0;
+   left: 11px;
+   width: 2px;
+   height: 24px;
+}
+
+/* ponto central */
+#crosshair .ch-dot {
+   left: 10px;
+   top: 10px;
+   width: 4px;
+   height: 4px;
+   border-radius: 50%;
+   background: rgba(255, 60, 60, 0.95);
+}
