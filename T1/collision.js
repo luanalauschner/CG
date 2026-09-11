@@ -330,22 +330,89 @@ export class CollisionSystem {
     * @param {number} radius raio da esfera
     * @returns {boolean} true se houve colisão
     */
-   sphereHitsWorld(center, radius) {
-      if (center.y - radius <= this.groundY) return true; // chão
+   /**
+ * Detecta a colisão da esfera com o cenário e retorna a normal da colisão.
+ *
+ * @param {THREE.Vector3} center centro da esfera
+ * @param {number} radius raio da esfera
+ * @returns {null|{nx:number, ny:number, nz:number, depth:number}}
+ */
+sphereCollision(center, radius) {
 
-      for (let i = 0; i < this.colliders.length; i++) {
-         const c = this.colliders[i];
-         if (!this._isActive(c)) continue;
+   // ==========================================================
+   // COLISÃO COM O CHÃO
+   // ==========================================================
 
-         if (center.y + radius < this._bottomOf(c)) continue;
-         if (center.y - radius > this._topOf(c))    continue;
+   if (center.y - radius <= this.groundY) {
 
-         const hit = (c.type === 'box')
-            ? this._circleVsBox(center.x, center.z, radius, c.box)
-            : this._circleVsCylinder(center.x, center.z, radius, c);
-
-         if (hit !== null) return true;
-      }
-      return false;
+      return {
+         nx: 0,
+         ny: 1,
+         nz: 0,
+         depth: this.groundY - (center.y - radius)
+      };
    }
+
+   // ==========================================================
+   // COLISÃO COM OS OBJETOS
+   // ==========================================================
+
+   for (let i = 0; i < this.colliders.length; i++) {
+
+      const c = this.colliders[i];
+
+      if (!this._isActive(c)) continue;
+
+      // Verifica se a esfera está dentro da altura do objeto
+      if (center.y + radius < this._bottomOf(c)) continue;
+
+      if (center.y - radius > this._topOf(c)) continue;
+
+      let hit = null;
+
+      // --------------------------------------------------------
+      // CAIXA
+      // --------------------------------------------------------
+
+      if (c.type === 'box') {
+
+         hit = this._circleVsBox(
+            center.x,
+            center.z,
+            radius,
+            c.box
+         );
+      }
+
+      // --------------------------------------------------------
+      // CILINDRO
+      // --------------------------------------------------------
+
+      else if (c.type === 'cylinder') {
+
+         hit = this._circleVsCylinder(
+            center.x,
+            center.z,
+            radius,
+            c
+         );
+      }
+
+      // --------------------------------------------------------
+      // COLISÃO ENCONTRADA
+      // --------------------------------------------------------
+
+      if (hit !== null) {
+
+         return {
+            nx: hit.nx,
+            ny: 0,
+            nz: hit.nz,
+            depth: hit.depth
+         };
+      }
+   }
+
+   return null;
+}
 }

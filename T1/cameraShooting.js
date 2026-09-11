@@ -269,148 +269,377 @@ export class CameraController {
 const PROJETIL = {
    raio:      0.16,
    velocidade: 80.0,  // unidades/s
-   alcance:   260.0,  // distância máxima antes de ser removido
-   passoMax:  0.6     // maior avanço testado por vez (evita atravessar paredes finas)
+   alcance:   260.0, // distância máxima
+   passoMax:  0.6    // maior avanço por sub-passo
 };
 
 export class ShootingSystem {
+
    /**
     * @param {THREE.Scene} scene
     * @param {CameraController} cameraCtrl
     * @param {CollisionSystem} collision
     */
    constructor(scene, cameraCtrl, collision) {
+
       this.scene      = scene;
       this.cameraCtrl = cameraCtrl;
       this.collision  = collision;
 
-      this.projeteis     = [];      // projéteis vivos
-      this.cadencia      = 0.15;    // intervalo mínimo entre dois disparos (s)
+      this.projeteis = [];
+
+      this.cadencia = 0.15;
       this.tempoDesdeTiro = this.cadencia;
 
-      // Geometria e material reaproveitados por todos os projéteis
-      this.geoProjetil = new THREE.SphereGeometry(PROJETIL.raio, 12, 12);
-      this.matProjetil = new THREE.MeshLambertMaterial({ color: "rgb(255,210,60)" });
+      // Geometria e material dos projéteis
+      this.geoProjetil = new THREE.SphereGeometry(
+         PROJETIL.raio,
+         12,
+         12
+      );
+
+      this.matProjetil = new THREE.MeshLambertMaterial({
+         color: "rgb(255,210,60)"
+      });
 
       this._criarArma();
       this._registrarEventos();
    }
 
    /**
-    * Arma: um cilindro centralizado na parte inferior da janela.
-    * Fica preso à câmera em primeira pessoa, portanto acompanha o olhar.
-    * O objeto 'boca' marca a ponta do cano, de onde as esferas saem.
+    * Cria a arma presa à câmera.
     */
    _criarArma() {
+
       this.arma = new THREE.Group();
 
       const comprimento = 1.5;
+
       const cano = new THREE.Mesh(
-         new THREE.CylinderGeometry(0.13, 0.17, comprimento, 20),
-         new THREE.MeshLambertMaterial({ color: "rgb(70,74,82)" })
+         new THREE.CylinderGeometry(
+            0.13,
+            0.17,
+            comprimento,
+            20
+         ),
+         new THREE.MeshLambertMaterial({
+            color: "rgb(70,74,82)"
+         })
       );
-      // O cilindro nasce alinhado a Y; giramos -90° em X para apontar para -Z
+
+      // Cilindro aponta para -Z
       cano.rotation.x = -Math.PI / 2;
+
       this.arma.add(cano);
 
-      // Anel na ponta do cano (apenas para dar volume à arma)
+      // Anel na ponta do cano
       const anel = new THREE.Mesh(
-         new THREE.CylinderGeometry(0.19, 0.19, 0.16, 20),
-         new THREE.MeshLambertMaterial({ color: "rgb(150,140,90)" })
+         new THREE.CylinderGeometry(
+            0.19,
+            0.19,
+            0.16,
+            20
+         ),
+         new THREE.MeshLambertMaterial({
+            color: "rgb(150,140,90)"
+         })
       );
+
       anel.rotation.x = -Math.PI / 2;
       anel.position.z = -comprimento / 2;
+
       this.arma.add(anel);
 
-      // Ponto de saída dos projéteis
+      // Boca do cano
       this.boca = new THREE.Object3D();
-      this.boca.position.set(0, 0, -comprimento / 2 - 0.1);
+
+      this.boca.position.set(
+         0,
+         0,
+         -comprimento / 2 - 0.1
+      );
+
       this.arma.add(this.boca);
 
-      // Centralizado em X e junto à borda inferior da tela
-      this.arma.position.set(0, -0.45, -1.0);
-      this.arma.rotation.x = 0.05; // leve inclinação para cima
+      // Posição da arma na tela
+      this.arma.position.set(
+         0,
+         -0.45,
+         -1.0
+      );
+
+      this.arma.rotation.x = 0.05;
 
       this.cameraCtrl.fpCamera.add(this.arma);
    }
 
+   /**
+    * Registra os eventos de disparo.
+    */
    _registrarEventos() {
-      // Botões esquerdo (0) e direito (2) disparam. Cada clique = um disparo.
+
       document.addEventListener('mousedown', (event) => {
+
          if (!this.cameraCtrl.ativo) return;
-         if (event.button === 0 || event.button === 2) this.atirar();
+
+         if (event.button === 0 || event.button === 2) {
+            this.atirar();
+         }
       });
-      // Impede o menu de contexto do botão direito
-      document.addEventListener('contextmenu', (event) => event.preventDefault());
+
+      document.addEventListener(
+         'contextmenu',
+         (event) => event.preventDefault()
+      );
    }
 
    /**
-    * Cria um projétil saindo da boca do cano na direção da mira.
-    * A mira está fixa no centro da tela, então a direção do tiro é obtida
-    * apontando da boca do cano para um ponto distante sobre o eixo da câmera.
+    * Cria um novo projétil.
     */
    atirar() {
-      if (this.tempoDesdeTiro < this.cadencia) return; // respeita a cadência
+
+      // Verifica cadência
+      if (this.tempoDesdeTiro < this.cadencia) return;
+
       this.tempoDesdeTiro = 0;
 
       const camera = this.cameraCtrl.fpCamera;
 
-      // Origem: ponta do cilindro (em coordenadas de mundo)
+      // ---------------------------------------------------
+      // ORIGEM DO PROJÉTIL
+      // ---------------------------------------------------
+
       const origem = new THREE.Vector3();
+
       this.boca.getWorldPosition(origem);
 
-      // Alvo: ponto distante exatamente sob a mira (centro da tela)
+      // ---------------------------------------------------
+      // DIREÇÃO DO TIRO
+      // ---------------------------------------------------
+
       const direcaoCamera = new THREE.Vector3();
+
       camera.getWorldDirection(direcaoCamera);
+
       const alvo = new THREE.Vector3()
          .copy(camera.position)
-         .addScaledVector(direcaoCamera, PROJETIL.alcance);
+         .addScaledVector(
+            direcaoCamera,
+            PROJETIL.alcance
+         );
 
-      const direcao = alvo.sub(origem).normalize();
+      const direcao = alvo
+         .sub(origem)
+         .normalize();
 
-      const mesh = new THREE.Mesh(this.geoProjetil, this.matProjetil);
+      // ---------------------------------------------------
+      // CRIA A ESFERA
+      // ---------------------------------------------------
+
+      const mesh = new THREE.Mesh(
+         this.geoProjetil,
+         this.matProjetil
+      );
+
       mesh.position.copy(origem);
+
       this.scene.add(mesh);
 
-      this.projeteis.push({ mesh: mesh, direcao: direcao, percorrido: 0 });
+      // ---------------------------------------------------
+      // VELOCIDADE INICIAL
+      // ---------------------------------------------------
+
+      const velocidade = direcao
+         .clone()
+         .multiplyScalar(PROJETIL.velocidade);
+
+      // ---------------------------------------------------
+      // REGISTRA O PROJÉTIL
+      // ---------------------------------------------------
+
+      this.projeteis.push({
+
+         mesh: mesh,
+
+         // Direção original do disparo
+         direcao: direcao.clone(),
+
+         // Velocidade física atual
+         velocidade: velocidade,
+
+         // Distância percorrida
+         percorrido: 0
+      });
    }
 
    /**
-    * Avança todos os projéteis e faz a gestão de remoção.
-    * Um projétil é removido quando:
-    *   - colide com o cenário (paredes, chão, escadas, portas fechadas...);
-    *   - percorre mais que PROJETIL.alcance sem atingir nada.
+    * Atualiza todos os projéteis.
+    *
+    * O projétil:
+    *   - sofre gravidade;
+    *   - movimenta-se em pequenos sub-passos;
+    *   - colide com paredes;
+    *   - quica ao atingir uma superfície;
+    *   - continua caindo após a colisão;
+    *   - é removido ao atingir o alcance máximo.
     */
    update(delta) {
+
       this.tempoDesdeTiro += delta;
 
-      const avanco = PROJETIL.velocidade * delta;
-      // Sub-passos garantem que o projétil não "pule" por cima de uma parede fina
-      const nSub   = Math.max(1, Math.ceil(avanco / PROJETIL.passoMax));
-      const passo  = avanco / nSub;
+      for (
+         let i = this.projeteis.length - 1;
+         i >= 0;
+         i--
+      ) {
 
-      for (let i = this.projeteis.length - 1; i >= 0; i--) {
          const p = this.projeteis[i];
+
          let remover = false;
 
-         for (let s = 0; s < nSub; s++) {
-            p.mesh.position.addScaledVector(p.direcao, passo);
-            p.percorrido += passo;
+         // ------------------------------------------------
+         // GRAVIDADE
+         // ------------------------------------------------
 
-            if (this.collision.sphereHitsWorld(p.mesh.position, PROJETIL.raio)) { remover = true; break; }
-            if (p.percorrido >= PROJETIL.alcance) { remover = true; break; }
+         p.velocidade.y -= 9.81 * delta;
+
+         // ------------------------------------------------
+         // DISTÂNCIA PERCORRIDA NESTE FRAME
+         // ------------------------------------------------
+
+         const avanco =
+            p.velocidade.length() * delta;
+
+         // Número de sub-passos
+         const nSub = Math.max(
+            1,
+            Math.ceil(
+               avanco / PROJETIL.passoMax
+            )
+         );
+
+         // Tempo de cada sub-passo
+         const passo = delta / nSub;
+
+         // ------------------------------------------------
+         // SUB-PASSOS
+         // ------------------------------------------------
+
+         for (let s = 0; s < nSub; s++) {
+
+            // Movimento da esfera
+            p.mesh.position.addScaledVector(
+               p.velocidade,
+               passo
+            );
+
+            // Atualiza distância percorrida
+            p.percorrido +=
+               p.velocidade.length() * passo;
+
+            // ------------------------------------------------
+            // COLISÃO
+            // ------------------------------------------------
+
+            const colisao =
+               this.collision.sphereCollision(
+                  p.mesh.position,
+                  PROJETIL.raio
+               );
+
+            if (colisao !== null) {
+
+               // Normal da superfície
+               const normal = new THREE.Vector3(
+                  colisao.nx,
+                  colisao.ny,
+                  colisao.nz
+               );
+
+               // ------------------------------------------------
+               // REMOVE A PENETRAÇÃO
+               // ------------------------------------------------
+
+               p.mesh.position.addScaledVector(
+                  normal,
+                  colisao.depth + 0.001
+               );
+
+               // ------------------------------------------------
+               // VELOCIDADE CONTRA A SUPERFÍCIE
+               // ------------------------------------------------
+
+               const velocidadeNormal =
+                  p.velocidade.dot(normal);
+
+               // Só rebate se estiver indo contra a superfície
+               if (velocidadeNormal < 0) {
+
+                  // 0 = não quica
+                  // 0.65 = quique moderado
+                  // 1 = quique perfeito
+                  const restituição = 0.1;
+
+                  p.velocidade.addScaledVector(
+                     normal,
+                     -(1 + restituição) *
+                     velocidadeNormal
+                  );
+
+                  // Reduz a velocidade total após o ricochete
+                  const fatorPerda = 0.5;
+
+                  p.velocidade.multiplyScalar(fatorPerda);
+               }
+
+               // ------------------------------------------------
+               // IMPORTANTE:
+               // NÃO REMOVE O PROJÉTIL.
+               // Ele continua se movimentando.
+               // ------------------------------------------------
+            }
+
+            // ------------------------------------------------
+            // ALCANCE MÁXIMO
+            // ------------------------------------------------
+
+            if (
+               p.percorrido >=
+               PROJETIL.alcance
+            ) {
+
+               remover = true;
+               break;
+            }
          }
 
+         // ---------------------------------------------------
+         // REMOVE PROJÉTIL
+         // ---------------------------------------------------
+
          if (remover) {
+
             this.scene.remove(p.mesh);
+
             this.projeteis.splice(i, 1);
          }
       }
    }
 
-   /** Quantidade de projéteis ativos (mostrada no painel de informações). */
-   get quantidade() { return this.projeteis.length; }
+   /**
+    * Quantidade de projéteis ativos.
+    */
+   get quantidade() {
 
-   /** A arma some quando estamos inspecionando o ambiente com a câmera orbital. */
-   setVisivel(v) { this.arma.visible = v; }
+      return this.projeteis.length;
+   }
+
+   /**
+    * Esconde ou mostra a arma.
+    */
+   setVisivel(v) {
+
+      this.arma.visible = v;
+   }
 }
+
