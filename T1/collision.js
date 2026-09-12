@@ -323,20 +323,103 @@ export class CollisionSystem {
    // ------------------------------------------------------------------------------
 
    /**
+    * Interseção 3D entre uma esfera (center,r) e uma caixa alinhada aos eixos.
+    * Ao contrário de _circleVsBox (que só olha o plano XZ), este teste também
+    * considera o topo e a base da caixa: é o que permite que um projétil fique
+    * apoiado sobre um muro em vez de ser empurrado para o lado.
+    *
+    * @returns {null|{nx:number, ny:number, nz:number, depth:number}}
+    */
+   _sphereVsBox(center, radius, box) {
+      const cx = THREE.MathUtils.clamp(center.x, box.min.x, box.max.x);
+      const cy = THREE.MathUtils.clamp(center.y, box.min.y, box.max.y);
+      const cz = THREE.MathUtils.clamp(center.z, box.min.z, box.max.z);
+
+      const dx = center.x - cx;
+      const dy = center.y - cy;
+      const dz = center.z - cz;
+      const d2 = dx * dx + dy * dy + dz * dz;
+
+      if (d2 > radius * radius) return null;
+
+      if (d2 > 1e-10) {
+         // Centro da esfera FORA da caixa: empurra na direção do ponto mais próximo
+         // (cuida de topo, base, faces laterais, arestas e cantos uniformemente).
+         const d = Math.sqrt(d2);
+         return { nx: dx / d, ny: dy / d, nz: dz / d, depth: radius - d };
+      }
+
+      // Centro da esfera DENTRO da caixa: empurra pela face mais próxima
+      const toMinX = center.x - box.min.x, toMaxX = box.max.x - center.x;
+      const toMinY = center.y - box.min.y, toMaxY = box.max.y - center.y;
+      const toMinZ = center.z - box.min.z, toMaxZ = box.max.z - center.z;
+      const menor  = Math.min(toMinX, toMaxX, toMinY, toMaxY, toMinZ, toMaxZ);
+
+      if (menor === toMinX) return { nx: -1, ny:  0, nz:  0, depth: toMinX + radius };
+      if (menor === toMaxX) return { nx:  1, ny:  0, nz:  0, depth: toMaxX + radius };
+      if (menor === toMinY) return { nx:  0, ny: -1, nz:  0, depth: toMinY + radius };
+      if (menor === toMaxY) return { nx:  0, ny:  1, nz:  0, depth: toMaxY + radius };
+      if (menor === toMinZ) return { nx:  0, ny:  0, nz: -1, depth: toMinZ + radius };
+      return                       { nx:  0, ny:  0, nz:  1, depth: toMaxZ + radius };
+   }
+
+   /**
+    * Interseção 3D entre uma esfera (center,r) e um cilindro vertical.
+    * Assim como em _sphereVsBox, o topo e a base do cilindro são considerados,
+    * permitindo que o projétil se apoie sobre torres/barris.
+    *
+    * @returns {null|{nx:number, ny:number, nz:number, depth:number}}
+    */
+   _sphereVsCylinder(center, radius, c) {
+      const dx = center.x - c.x;
+      const dz = center.z - c.z;
+      const radial = Math.sqrt(dx * dx + dz * dz);
+
+      // Ponto mais próximo no eixo XZ (clamp radial ao raio do cilindro)
+      let closestX, closestZ;
+      if (radial > c.radius) {
+         const t = c.radius / radial;
+         closestX = c.x + dx * t;
+         closestZ = c.z + dz * t;
+      } else {
+         closestX = center.x;
+         closestZ = center.z;
+      }
+      const closestY = THREE.MathUtils.clamp(center.y, c.minY, c.maxY);
+
+      const vx = center.x - closestX;
+      const vy = center.y - closestY;
+      const vz = center.z - closestZ;
+      const d2 = vx * vx + vy * vy + vz * vz;
+
+      if (d2 > radius * radius) return null;
+
+      if (d2 > 1e-10) {
+         const d = Math.sqrt(d2);
+         return { nx: vx / d, ny: vy / d, nz: vz / d, depth: radius - d };
+      }
+
+      // Centro da esfera DENTRO do cilindro: empurra pela face mais próxima
+      // (topo, base ou lateral)
+      const toMinY = center.y - c.minY;
+      const toMaxY = c.maxY - center.y;
+      const toSide = c.radius - radial;
+      const menor  = Math.min(toMinY, toMaxY, toSide);
+
+      if (menor === toMinY) return { nx: 0, ny: -1, nz: 0, depth: toMinY + radius };
+      if (menor === toMaxY) return { nx: 0, ny:  1, nz: 0, depth: toMaxY + radius };
+      if (radial > 1e-9) return { nx: dx / radial, ny: 0, nz: dz / radial, depth: toSide + radius };
+      return { nx: 1, ny: 0, nz: 0, depth: toSide + radius };
+   }
+
+   /**
     * Testa se uma esfera (projétil) encostou em alguma geometria do cenário,
     * incluindo o plano de chão.
     *
     * @param {THREE.Vector3} center centro da esfera
     * @param {number} radius raio da esfera
-    * @returns {boolean} true se houve colisão
+    * @returns {null|{nx:number, ny:number, nz:number, depth:number}}
     */
-   /**
- * Detecta a colisão da esfera com o cenário e retorna a normal da colisão.
- *
- * @param {THREE.Vector3} center centro da esfera
- * @param {number} radius raio da esfera
- * @returns {null|{nx:number, ny:number, nz:number, depth:number}}
- */
 sphereCollision(center, radius) {
 
    // ==========================================================
@@ -376,9 +459,8 @@ sphereCollision(center, radius) {
 
       if (c.type === 'box') {
 
-         hit = this._circleVsBox(
-            center.x,
-            center.z,
+         hit = this._sphereVsBox(
+            center,
             radius,
             c.box
          );
@@ -390,9 +472,8 @@ sphereCollision(center, radius) {
 
       else if (c.type === 'cylinder') {
 
-         hit = this._circleVsCylinder(
-            center.x,
-            center.z,
+         hit = this._sphereVsCylinder(
+            center,
             radius,
             c
          );
@@ -404,12 +485,7 @@ sphereCollision(center, radius) {
 
       if (hit !== null) {
 
-         return {
-            nx: hit.nx,
-            ny: 0,
-            nz: hit.nz,
-            depth: hit.depth
-         };
+         return hit;
       }
    }
 
