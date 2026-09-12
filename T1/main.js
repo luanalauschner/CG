@@ -25,7 +25,7 @@ import { initRenderer,
          SecondaryBox } from "../libs/util/util.js";
 
 import { CollisionSystem } from './collision.js';
-import { createCastle } from './environment.js';
+import { createCastle, ESCALA } from './environment.js';
 import { CameraController, ShootingSystem } from './cameraShooting.js';
 
 // -------------------------------------------------------------------------------------
@@ -54,12 +54,15 @@ const castelo   = createCastle(scene, collision);
 // 4) JOGADOR: CÂMERA EM PRIMEIRA PESSOA E SISTEMA DE DISPAROS
 //    O jogador nasce em frente à portaria, de costas para o campo, olhando o castelo.
 // -------------------------------------------------------------------------------------
-const spawn      = new THREE.Vector3(0, 0, -72);
+// A distância até a portaria (-72, -49) foi calibrada para o castelo em
+// tamanho original: escalamos junto com ESCALA para continuar em frente à
+// entrada mesmo que o castelo fique maior/menor.
+const spawn      = new THREE.Vector3(0, 0, -72 * ESCALA);
 const cameraCtrl = new CameraController(scene, renderer, collision, spawn);
 const disparos   = new ShootingSystem(scene, cameraCtrl, collision);
 
 // Olha inicialmente para a entrada do castelo
-cameraCtrl.fpCamera.lookAt(0, 6, -49);
+cameraCtrl.fpCamera.lookAt(0, 6 * ESCALA, -49 * ESCALA);
 
 // -------------------------------------------------------------------------------------
 // 5) INTERFACE

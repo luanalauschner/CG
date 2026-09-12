@@ -28,6 +28,7 @@ import * as THREE from 'three';
 import { PointerLockControls } from '../build/jsm/controls/PointerLockControls.js';
 import { OrbitControls } from '../build/jsm/controls/OrbitControls.js';
 import { createActor, STEP_HEIGHT } from './collision.js';
+import { ESCALA } from './environment.js';
 
 // -------------------------------------------------------------------------------------
 // Parâmetros do personagem
@@ -63,12 +64,15 @@ export class CameraController {
       scene.add(this.fpCamera); // precisa estar na cena para a arma (filha) ser desenhada
 
       // --- Câmera orbital, usada para inspecionar o ambiente (tecla 'c') --------
+      // Começa posicionada perto da portaria (lado norte), olhando para dentro
+      // do castelo, para que a inspeção comece justamente pela entrada.
+      // As distâncias escalam com ESCALA para acompanhar o tamanho do castelo.
       this.orbitCamera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 3000);
-      this.orbitCamera.position.set(0, 110, 165);
-      this.orbitCamera.lookAt(0, 0, 0);
+      this.orbitCamera.position.set(0, 45 * ESCALA, -300 * ESCALA);
+      this.orbitCamera.lookAt(0, 8 * ESCALA, 0);
 
       this.orbit = new OrbitControls(this.orbitCamera, renderer.domElement);
-      this.orbit.target.set(0, 8, 0);
+      this.orbit.target.set(0, 8 * ESCALA, 0);
       this.orbit.enabled = false; // só liga no modo orbital
       this.orbit.update();
 
