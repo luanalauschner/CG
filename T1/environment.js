@@ -2,31 +2,6 @@
  * =====================================================================================
  *  T1 - MODELAGEM DO AMBIENTE
  * =====================================================================================
- *  Constrói o castelo inspirado no Castelo de Bodiam (Inglaterra) usando APENAS
- *  primitivas do three.js (BoxGeometry e CylinderGeometry) e o material padrão
- *  exigido no enunciado: setDefaultMaterial(cor).
- *
- *  ESTRUTURA GERAL (vista de cima, X para leste, -Z para o norte)
- *  ---------------------------------------------------------------
- *          NORTE  (portaria + porta principal / grade)
- *       +---#---------[ PORTARIA ]---------#---+
- *       |   O                               O  |   O = torre cilíndrica de canto
- *       |                                      |   # = torre quadrada (avança p/ fora)
- *   [T] |   [ ALOJAMENTOS ]   [ TORRE DE   ]   | [T]
- *  OESTE|   (porta + escada)  [  MENAGEM   ]   | LESTE
- *       |                     (porta+escada)   |
- *       |   O          escada -> muralha    O  |
- *       +---#-------------[T]------------------+
- *          SUL            (brecha p/ testar queda)
- *
- *  ELEMENTOS EXIGIDOS PELO ENUNCIADO
- *   - Parte externa fiel: muralhas, 4 torres cilíndricas de canto, 3 torres
- *     quadradas intermediárias, portaria com duas torres e ameias (merlões);
- *   - Parte interna: 2 construções, cada uma com escada para o pavimento superior;
- *   - Escada de acesso ao topo da muralha;
- *   - 3 portas com animação: grade principal (sobe) + 2 portas de dobradiça (giram);
- *   - Uma BRECHA na muralha sul, sem ameias, para testar a queda suave.
- * =====================================================================================
  */
 
 import * as THREE from 'three';
@@ -34,7 +9,7 @@ import { setDefaultMaterial } from '../libs/util/util.js';
 import { STEP_HEIGHT } from './collision.js';
 
 // =====================================================================================
-// DIMENSÕES GERAIS DO CASTELO (todas em "unidades" ~ metros)
+// DIMENSÕES GERAIS DO CASTELO
 // =====================================================================================
 const MURALHA = {
    meio:      40,   // distância do centro até a linha média de cada muralha
@@ -51,8 +26,7 @@ const MERLAO = { largura: 1.8, vaoMax: 0.95, altura: 1.4, espessura: 0.8 };
 const PORTAO = { meiaLargura: 4, altura: 20 };  // vão da entrada principal
 const TORRE_CANTO = { raio: 8.5, altura: 70 }; // torres cilíndricas
 
-// Fator de escala geral do castelo: mude SÓ este número para deixar o castelo
-// inteiro maior ou menor (1 = tamanho original; 1.5 = 50% maior; etc.).
+// Fator de escala geral do castelo
 // O jogador não é afetado - por isso o castelo fica maior/menor EM RELAÇÃO a ele.
 export const ESCALA = 1.6;
 
@@ -98,19 +72,17 @@ export function createCastle(scene, collision) {
    castelo.updateMatrixWorld(true);
 
    // ----------------------------------------------------------------------------
-   // MATERIAIS - conforme o enunciado, todos criados com setDefaultMaterial(cor)
+   // MATERIAIS
    // ----------------------------------------------------------------------------
-   const matPedra    = setDefaultMaterial("rgb(248, 217, 163)"); // muralhas
-   const matPedraEsc = setDefaultMaterial("rgb(255, 234, 197)"); // torres / detalhes
-   const matPedraCentral = setDefaultMaterial("rgb(228, 208, 175)"); // portaria central
-   const matAmeia    = setDefaultMaterial("rgb(255, 220, 160)"); // merlões
-   const matDegrau   = setDefaultMaterial("rgb(140,134,124)"); // escadas
-   const matPredio   = setDefaultMaterial("rgb(176,168,152)"); // construções internas
-   const matTelhado  = setDefaultMaterial("rgb(122,62,48)");   // coberturas
-   const matMadeira  = setDefaultMaterial("rgb(104,66,38)");   // portas
-   const matFerro    = setDefaultMaterial("rgb(62, 62, 68)");    // grade do portão
-   const matVao      = setDefaultMaterial("rgb(53, 42, 30)");    // seteiras / janelas
-   const matEntulho  = setDefaultMaterial("rgb(146,140,130)"); // entulho da brecha
+   const matPedra    = setDefaultMaterial("rgb(248, 217, 163)"); // muralhas, alvenaria da portaria e moldura do portão
+   const matPedraEsc = setDefaultMaterial("rgb(255, 234, 197)"); // torres (canto/quadradas), cordão decorativo, calçada e corpo do poço
+   const matAmeia    = setDefaultMaterial("rgb(255, 220, 160)"); // merlões (muralhas, torres e terraços)
+   const matDegrau   = setDefaultMaterial("rgb(140,134,124)"); // degraus e muretas das escadas
+   const matPredio   = setDefaultMaterial("rgb(176,168,152)"); // paredes/lajes das duas construções internas
+   const matTelhado  = setDefaultMaterial("rgb(122,62,48)");   // telhado do poço
+   const matMadeira  = setDefaultMaterial("rgb(104,66,38)");   // folhas de porta, mobiliário (caixotes/barris) e estrutura do poço
+   const matFerro    = setDefaultMaterial("rgb(62, 62, 68)");    // grade do portão e travessas de reforço das portas de madeira
+   const matVao      = setDefaultMaterial("rgb(53, 42, 30)");    // aberturas escuras: seteiras, janelas, vãos decorativos e interior do poço
 
    const doors = []; // portas animadas criadas ao longo da modelagem
 
@@ -118,15 +90,57 @@ export function createCastle(scene, collision) {
    // FERRAMENTAS DE CONSTRUÇÃO
    // ============================================================================
 
+   // Cache de geometrias por dimensão: o castelo repete MUITAS peças do mesmo
+   // tamanho (merlões, degraus, faixas decorativas, barris...). Reaproveitar a
+   // mesma BoxGeometry/CylinderGeometry entre meshes idênticos evita centenas
+   // de buffers de geometria duplicados na GPU - cada mesh mantém sua própria
+   // posição/matriz, então o colisor (calculado por Box3.setFromObject, que
+   // usa a matriz de mundo) não é afetado pela geometria ser compartilhada.
+   const geoCacheBox = new Map();
+   const geoCacheCil = new Map();
+
+   /**
+    * Devolve uma BoxGeometry para as dimensões dadas, reaproveitando do cache
+    * quando já existe uma peça igual (mesma largura/altura/profundidade).
+    */
+   function geometriaBox(largura, altura, profundidade) {
+      const chave = `${largura.toFixed(6)}|${altura.toFixed(6)}|${profundidade.toFixed(6)}`;
+      let geo = geoCacheBox.get(chave);
+      if (!geo) {
+         geo = new THREE.BoxGeometry(largura, altura, profundidade);
+         geoCacheBox.set(chave, geo);
+      }
+      return geo;
+   }
+
+   /**
+    * Devolve uma CylinderGeometry (raio igual no topo/base) para as dimensões
+    * dadas, reaproveitando do cache quando já existe uma peça igual.
+    */
+   function geometriaCilindro(raio, altura, lados) {
+      const chave = `${raio.toFixed(6)}|${altura.toFixed(6)}|${lados}`;
+      let geo = geoCacheCil.get(chave);
+      if (!geo) {
+         geo = new THREE.CylinderGeometry(raio, raio, altura, lados);
+         geoCacheCil.set(chave, geo);
+      }
+      return geo;
+   }
+
    /**
     * Cria um paralelepípedo a partir dos seus LIMITES (mínimo/máximo em cada eixo).
     * Trabalhar com limites (e não com centro+tamanho) deixa o código do layout
     * muito mais legível e faz o registro do colisor ser exato.
     *
+    * @param {number} x0,x1 limites mínimo/máximo no eixo X
+    * @param {number} y0,y1 limites mínimo/máximo no eixo Y (altura)
+    * @param {number} z0,z1 limites mínimo/máximo no eixo Z
+    * @param {THREE.Material} material material (sempre criado via setDefaultMaterial)
     * @param {boolean} colide se false, é apenas decoração (não entra na colisão)
+    * @returns {THREE.Mesh} a malha criada (já adicionada ao grupo "castelo")
     */
    function bloco(x0, x1, y0, y1, z0, z1, material, colide = true) {
-      const geo = new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0);
+      const geo = geometriaBox(x1 - x0, y1 - y0, z1 - z0);
       const mesh = new THREE.Mesh(geo, material);
       mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
       castelo.add(mesh);
@@ -136,10 +150,18 @@ export function createCastle(scene, collision) {
 
    /**
     * Cria um cilindro vertical (torres, poço, barris).
+    *
+    * @param {number} raio raio do cilindro (constante do topo à base)
+    * @param {number} altura altura total do cilindro
+    * @param {number} x,z centro do cilindro no plano horizontal
     * @param {number} yBase base do cilindro
+    * @param {THREE.Material} material material (sempre criado via setDefaultMaterial)
+    * @param {boolean} colide se false, é apenas decoração (não entra na colisão)
+    * @param {number} lados nº de segmentos radiais (suavidade do cilindro)
+    * @returns {THREE.Mesh} a malha criada (já adicionada ao grupo "castelo")
     */
    function cilindro(raio, altura, x, yBase, z, material, colide = true, lados = 28) {
-      const geo = new THREE.CylinderGeometry(raio, raio, altura, lados);
+      const geo = geometriaCilindro(raio, altura, lados);
       const mesh = new THREE.Mesh(geo, material);
       mesh.position.set(x, yBase + altura / 2, z);
       castelo.add(mesh);
@@ -158,11 +180,11 @@ export function createCastle(scene, collision) {
     * Detalhe importante para a jogabilidade: a quantidade de merlões é escolhida
     * de forma que nenhum vão fique maior que MERLAO.vaoMax. Como o diâmetro do
     * cilindro de colisão do jogador é 1.0 unidade, ele nunca consegue escapar por
-    * entre as ameias - as únicas saídas são as previstas no projeto (a brecha da
-    * muralha sul e as bordas internas do caminho de ronda).
+    * entre as ameias - as únicas saídas são as previstas no projeto (as bordas
+    * internas do caminho de ronda).
     *
-    * Trechos sem ameias (torres, brecha, chegada de escadas) são obtidos
-    * chamando esta função uma vez para cada intervalo contíguo.
+    * Trechos sem ameias (torres, chegada de escadas) são obtidos chamando esta
+    * função uma vez para cada intervalo contíguo.
     *
     * @param {string} eixo   'x' (fileira ao longo de X) ou 'z'
     * @param {number} f0,f1  limites no eixo perpendicular (espessura do merlão)
@@ -247,7 +269,13 @@ export function createCastle(scene, collision) {
     * Cria uma parede com um vão de porta no meio: duas laterais + verga em cima.
     * O vão fica entre 'vao0' e 'vao1' e tem 'alturaVao' de altura livre.
     *
-    * @param {string} eixo 'x' se a parede é perpendicular a X (vão medido em Z)
+    * @param {string} eixo 'x' se a parede é perpendicular a X (vão medido em Z), senão 'z'
+    * @param {number} e0,e1  limites da parede no eixo perpendicular (sua espessura)
+    * @param {number} y0,y1  base e topo da parede
+    * @param {number} l0,l1  limites totais da parede no eixo do vão (largura da parede)
+    * @param {number} vao0,vao1 limites do vão (porta), dentro do intervalo [l0,l1]
+    * @param {number} alturaVao altura livre do vão, a partir de y0 (acima disso entra a verga)
+    * @param {THREE.Material} material material das três partes (laterais + verga)
     */
    function paredeComVao(eixo, e0, e1, y0, y1, l0, l1, vao0, vao1, alturaVao, material) {
       if (eixo === 'x') {
@@ -288,20 +316,19 @@ export function createCastle(scene, collision) {
 
       // --- Ameias (merlões) na borda EXTERNA do caminho de ronda -----------------
       const yA0 = H, yA1 = H + MERLAO.altura;
-      const e   = MERLAO.espessura;
+      const e = MERLAO.espessura;
 
-      // As fileiras são interrompidas onde há torres (o volume da torre já fecha
-      // a borda) e, na muralha sul, no trecho reservado à brecha.
+      // As fileiras são interrompidas onde há torres, pois o volume da torre já
+      // fecha a borda.
       const T = 4.5;  // meia largura das torres quadradas intermediárias
 
       // Norte: interrompida por todo o bloco da portaria (x de -12 a 12)
       fileiraDeMerloes('x', -FACE_EXT, -FACE_EXT + e, -35, -12, yA0, yA1, matAmeia);
       fileiraDeMerloes('x', -FACE_EXT, -FACE_EXT + e,  12,  35, yA0, yA1, matAmeia);
 
-      // Sul: interrompida pela torre da poterna e pela BRECHA (x de 6 a 16)
+      // Sul: interrompida apenas pela torre da poterna
       fileiraDeMerloes('x', FACE_EXT - e, FACE_EXT, -35, -T, yA0, yA1, matAmeia);
-      fileiraDeMerloes('x', FACE_EXT - e, FACE_EXT,   T,  6, yA0, yA1, matAmeia);
-      fileiraDeMerloes('x', FACE_EXT - e, FACE_EXT,  16, 35, yA0, yA1, matAmeia);
+      fileiraDeMerloes('x', FACE_EXT - e, FACE_EXT,   T, 35, yA0, yA1, matAmeia);
 
       // Oeste e Leste: interrompidas pelas suas torres intermediárias
       fileiraDeMerloes('z', -FACE_EXT, -FACE_EXT + e, -35, -T, yA0, yA1, matAmeia);
@@ -309,14 +336,6 @@ export function createCastle(scene, collision) {
       fileiraDeMerloes('z',  FACE_EXT - e, FACE_EXT,  -35, -T, yA0, yA1, matAmeia);
       fileiraDeMerloes('z',  FACE_EXT - e, FACE_EXT,    T, 35, yA0, yA1, matAmeia);
 
-      // --- BRECHA: trecho arruinado da muralha sul (x de 6 a 16) -----------------
-      // O topo é rebaixado e não há merlões: o jogador anda para fora e CAI.
-      // A queda é resolvida pela gravidade do sistema de colisão (movimento suave).
-      bloco(6, 16, H, H + 0.4, FACE_EXT - 1.2, FACE_EXT, matEntulho);
-      // Entulho no chão, fora da muralha, marcando o ponto da brecha
-      bloco(7.5, 11.5, 0, 1.6, FACE_EXT + 1.5, FACE_EXT + 5.0, matEntulho);
-      bloco(11.0, 14.5, 0, 1.0, FACE_EXT + 2.5, FACE_EXT + 6.5, matEntulho);
-      bloco(9.0, 12.0, 0, 2.4, FACE_EXT + 5.5, FACE_EXT + 8.0, matEntulho);
    }
 
    // ============================================================================
@@ -333,12 +352,15 @@ export function createCastle(scene, collision) {
          cilindro(TORRE_CANTO.raio + 0.7, 0.8, x, TORRE_CANTO.altura - 0.6, z,
                   matPedra, false);
 
-         // Coroa de merlões
+         // Coroa de merlões: 'n' blocos distribuídos em círculo no topo da torre,
+         // cada um rotacionado para apontar radialmente para fora.
+         // Puramente decorativo: como o jogador nunca alcança o topo da torre de
+         // canto (altura 70, sem escada até lá), estes merlões NÃO são registrados
+         // como colisores (não passam por bloco(), que faz isso por padrão).
          const n = 14;
          for (let i = 0; i < n; i++) {
             const ang = (i / n) * Math.PI * 2;
-            const geo = new THREE.BoxGeometry(1.5, MERLAO.altura, 0.9);
-            const m   = new THREE.Mesh(geo, matAmeia);
+            const m   = new THREE.Mesh(geometriaBox(1.5, MERLAO.altura, 0.9), matAmeia);
             m.position.set(x + Math.cos(ang) * (TORRE_CANTO.raio - 0.2),
                            TORRE_CANTO.altura + 0.2 + MERLAO.altura / 2,
                            z + Math.sin(ang) * (TORRE_CANTO.raio - 0.2));
@@ -346,11 +368,15 @@ export function createCastle(scene, collision) {
             castelo.add(m);
          }
 
-         // Seteiras (frestas) espalhadas pelo corpo da torre
+         // Seteiras (frestas) em espiral subindo pelo corpo da torre: a cada
+         // passo 'k' o ângulo avança 0.9 rad (~51,6°) e a altura sobe 4 unidades,
+         // então em 16 passos o ângulo dá mais de 2 voltas completas (16*0.9 ≈
+         // 14,4 rad) - o resultado é uma fileira de seteiras espalhada por toda
+         // a circunferência da torre, não só numa fatia. Também decorativo/sem
+         // colisão, pelo mesmo motivo dos merlões acima.
          for (let k = 0; k < 16; k++) {
             const ang = -Math.PI / 4 + k * 0.9;
-            const geo = new THREE.BoxGeometry(0.5, 2.2, 0.4);
-            const s   = new THREE.Mesh(geo, matVao);
+            const s   = new THREE.Mesh(geometriaBox(0.5, 2.2, 0.4), matVao);
             s.position.set(x + Math.cos(ang) * (TORRE_CANTO.raio - 0.1),
                            6 + k * 4,
                            z + Math.sin(ang) * (TORRE_CANTO.raio - 0.1));
@@ -378,20 +404,20 @@ export function createCastle(scene, collision) {
    function construirTorresIntermediarias() {
       const H = 65, saliencia = 12, meiaLargura = 6.5;
 
-      // Leste
+      // Leste: corpo da torre + coroa de merlões + seteira decorativa na face externa
       bloco(FACE_EXT - 1, FACE_EXT + saliencia, 0, H, -meiaLargura, meiaLargura, matPedraEsc);
       coroarTorreQuadrada(FACE_EXT - 1, FACE_EXT + saliencia, -meiaLargura, meiaLargura, H);
-      bloco(FACE_EXT + saliencia - 0.1, FACE_EXT + saliencia + 0.1, 8, 11, -0.6, 0.6, matVao, false);
+      bloco(FACE_EXT + saliencia - 0.1, FACE_EXT + saliencia + 0.1, 8, 11, -0.6, 0.6, matVao, false); // seteira
 
-      // Oeste
+      // Oeste: mesma estrutura da torre leste, espelhada em X
       bloco(-FACE_EXT - saliencia, -FACE_EXT + 1, 0, H, -meiaLargura, meiaLargura, matPedraEsc);
       coroarTorreQuadrada(-FACE_EXT - saliencia, -FACE_EXT + 1, -meiaLargura, meiaLargura, H);
-      bloco(-FACE_EXT - saliencia - 0.1, -FACE_EXT - saliencia + 0.1, 8, 11, -0.6, 0.6, matVao, false);
+      bloco(-FACE_EXT - saliencia - 0.1, -FACE_EXT - saliencia + 0.1, 8, 11, -0.6, 0.6, matVao, false); // seteira
 
-      // Sul (torre da poterna)
+      // Sul (torre da poterna): mesma estrutura, girada 90° (avança em Z)
       bloco(-meiaLargura, meiaLargura, 0, H, FACE_EXT - 1, FACE_EXT + saliencia, matPedraEsc);
       coroarTorreQuadrada(-meiaLargura, meiaLargura, FACE_EXT - 1, FACE_EXT + saliencia, H);
-      bloco(-0.6, 0.6, 8, 11, FACE_EXT + saliencia - 0.1, FACE_EXT + saliencia + 0.1, matVao, false);
+      bloco(-0.6, 0.6, 8, 11, FACE_EXT + saliencia - 0.1, FACE_EXT + saliencia + 0.1, matVao, false); // seteira
    }
 
    // ============================================================================
@@ -412,20 +438,25 @@ export function createCastle(scene, collision) {
       coroarTorreQuadrada(L, L + 8, zFrente, zFundo, Htorres);
       coroarTorreQuadrada(-L - 8, -L, zFrente, zFundo, Htorres);
 
-      // Bloco central: mesmo tamanho das torres, só que recuado em Z
-      // (passa através da muralha, saindo um pouco do outro lado).
-      bloco(-L, L, PORTAO.altura, Htorres, zFrente + recuo, zFundo + recuo, matPedra); //torre central
+      // Bloco central: mesmo tamanho das torres, só que recuado em Z (passa
+      // através da muralha, saindo um pouco do outro lado) e começa em
+      // PORTAO.altura (fica "pousado" sobre a verga do vão, como na muralha
+      // norte) - por isso usa matPedra (cor da muralha) e não matPedraEsc
+      // (cor das torres), reforçando visualmente que é parte da própria parede.
+      bloco(-L, L, PORTAO.altura, Htorres, zFrente + recuo, zFundo + recuo, matPedra); // bloco central da portaria
       coroarTorreQuadrada(-L, L, zFrente + recuo, zFundo + recuo, Htorres);
 
-      // vaos da portaria
-      bloco(-0.8, 0.8, 30, 33.5, zFrente - 0.15, zFrente + 1, matVao, false); //vao do meio
-      bloco(-L - 5.6, -L - 4.4, 9, 12.5, zFrente - 0.15, zFrente + 0.1, matVao, false); // vao da esquerda
-      bloco(L + 4.4, L + 5.6, 9, 12.5, zFrente - 0.15, zFrente + 0.1, matVao, false); //vao da direita
+      // Vãos decorativos (seteiras/janelas escuras) na fachada frontal da portaria
+      bloco(-0.8, 0.8, 30, 33.5, zFrente - 0.15, zFrente + 1, matVao, false);          // vão central, acima da entrada
+      bloco(-L - 5.6, -L - 4.4, 9, 12.5, zFrente - 0.15, zFrente + 0.1, matVao, false); // seteira na torre esquerda (oeste)
+      bloco(L + 4.4, L + 5.6, 9, 12.5, zFrente - 0.15, zFrente + 0.1, matVao, false);   // seteira na torre direita (leste)
 
-      //Paredes depois da porta
-      bloco(4, 7, 0, PORTAO.altura + 0.6, zFundo, zFundo + 8, matPedra); // parede atrás da portaria
-      bloco(-7, -4, 0, PORTAO.altura + 0.6, zFundo, zFundo + 8, matPedra); // parede atrás da portaria
-      bloco(-7, 7, PORTAO.altura, PORTAO.altura + 0.6, zFundo, zFundo + 8, matPedra); // parede atrás da portaria
+      // Paredes de fechamento do túnel de entrada, do lado interno (pátio):
+      // duas laterais + verga por cima, no mesmo padrão da muralha norte
+      // (a passagem termina aqui, com o piso do caminho de ronda por cima).
+      bloco(4, 7, 0, PORTAO.altura + 0.6, zFundo, zFundo + 8, matPedra);   // lateral leste
+      bloco(-7, -4, 0, PORTAO.altura + 0.6, zFundo, zFundo + 8, matPedra); // lateral oeste
+      bloco(-7, 7, PORTAO.altura, PORTAO.altura + 0.6, zFundo, zFundo + 8, matPedra); // verga
 
       // ---------------------------------------------------------------------
       // PORTA 1: grade (portcullis) que DESLIZA PARA CIMA
@@ -436,14 +467,16 @@ export function createCastle(scene, collision) {
 
       const barra = 0.22;
       // Barras verticais (9 barras simétricas, de -3.6 a 3.6)
+      const geoBarraV = geometriaBox(barra, PORTAO.altura, barra);
       for (let x = -3.6; x <= 3.6 + 1e-6; x += 0.9) {
-         const g = new THREE.Mesh(new THREE.BoxGeometry(barra, PORTAO.altura, barra), matFerro);
+         const g = new THREE.Mesh(geoBarraV, matFerro);
          g.position.set(x, PORTAO.altura / 2, 0);
          grade.add(g);
       }
       // Barras horizontais
+      const geoBarraH = geometriaBox(2 * L - 0.4, barra, barra * 0.8);
       for (let y = 0.6; y <= PORTAO.altura - 0.3; y += 1.5) {
-         const g = new THREE.Mesh(new THREE.BoxGeometry(2 * L - 0.4, barra, barra * 0.8), matFerro);
+         const g = new THREE.Mesh(geoBarraH, matFerro);
          g.position.set(0, y, 0);
          grade.add(g);
       }
@@ -638,13 +671,14 @@ export function createCastle(scene, collision) {
       pivo.position.set(x, 0, zHinge);
       castelo.add(pivo);
 
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(esp, alt, larg), material);
+      const mesh = new THREE.Mesh(geometriaBox(esp, alt, larg), material);
       mesh.position.set(0, alt / 2, sentido * larg / 2);
       pivo.add(mesh);
 
       // Travessas de reforço (detalhe da porta de madeira)
+      const geoTravessa = geometriaBox(esp * 1.6, 0.25, larg * 0.9);
       for (const h of [alt * 0.25, alt * 0.75]) {
-         const t = new THREE.Mesh(new THREE.BoxGeometry(esp * 1.6, 0.25, larg * 0.9), matFerro);
+         const t = new THREE.Mesh(geoTravessa, matFerro);
          t.position.set(0, h, sentido * larg / 2);
          pivo.add(t);
       }
@@ -652,7 +686,7 @@ export function createCastle(scene, collision) {
    }
 
    // ============================================================================
-   // 8) DETALHES DO PÁTIO (poço, barris, calçada)
+   // 7) DETALHES DO PÁTIO (poço, barris, calçada)
    // ============================================================================
    function construirPatio() {
       // Calçada ligando o portão às duas construções
@@ -672,16 +706,18 @@ export function createCastle(scene, collision) {
       bloco(8, 10, 0, 1.6, 14, 16, matMadeira);
       bloco(10, 11.6, 0, 1.2, 14.4, 16, matMadeira);
    }
+   /** Poço com brocal de pedra, tampo escuro (efeito de buraco), guarda-mão de madeira e telhado. */
    function construirPoco(){
-      // Poço no centro-sul do pátio
-      // Corpo do poço (cilindro oco)
+      // Brocal do poço: cilindro maciço de pedra (raio 2.4) que forma o aro visível.
       cilindro(2.4, 1.3, 0, 0, 34, matPedraEsc);
-      // Parte preta do poço (interior, não colide)
+      // Tampo escuro por cima, mais estreito (raio 2.0) e raso (0.2): não é um
+      // buraco real, é só a cor escura simulando o interior/sombra do poço.
+      // Decorativo (não colide), senão o jogador ficaria "preso" andando por cima.
       cilindro(2.0, 0.2, 0, 1.3, 34, matVao, false);
-      // Laterais do poço
+      // Guarda-mão de madeira nas laterais (norte/sul), apoiado no brocal
       bloco(-2.5, -1.9, 1.3, 4.2, 33.4, 34.6, matMadeira);
       bloco( 1.9,  2.5, 1.3, 4.2, 33.4, 34.6, matMadeira);
-      // Telhado do poco
+      // Telhado do poço (decorativo, não colide)
       bloco(-2.8,  2.8, 4.2, 5.0, 32.6, 35.4, matTelhado, false);
    }
    // ----------------------------------------------------------------------------
@@ -751,13 +787,6 @@ export class AnimatedDoor {
    update(delta, posJogador) {
       const dist = posJogador.distanceTo(this.ponto);
       const alvo = (dist < this.distancia) ? 1 : 0;
-      // DEBUG TEMPORÁRIO: mostra no console (F12) a distância real até o
-      // ponto de gatilho toda vez que a porta muda de "quer abrir"/"quer
-      // fechar" - remover depois de descobrir o que está acontecendo.
-      if (alvo !== this._ultimoAlvo) {
-         console.log(`[porta] ${this.nome}: alvo=${alvo} dist=${dist.toFixed(1)} limite=${this.distancia.toFixed(1)} ponto=(${this.ponto.x.toFixed(1)},${this.ponto.y.toFixed(1)},${this.ponto.z.toFixed(1)}) jogador=(${posJogador.x.toFixed(1)},${posJogador.y.toFixed(1)},${posJogador.z.toFixed(1)})`);
-         this._ultimoAlvo = alvo;
-      }
       if (this.t === alvo) return;
 
       const sentido = Math.sign(alvo - this.t);

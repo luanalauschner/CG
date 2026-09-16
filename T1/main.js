@@ -75,8 +75,8 @@ const info = new InfoBox();
    info.add("Disparo: botão esquerdo ou direito do mouse");
    info.add("Câmera orbital: tecla C");
    info.addParagraph();
-   info.add("Suba a escada do pátio até a muralha sul");
-   info.add("e caminhe pela brecha para testar a queda.");
+   /* info.add("Suba a escada do pátio até a muralha sul");
+   info.add("e caminhe pela borda interna para testar a queda."); */
    info.show();
 
 const status = new SecondaryBox("");
