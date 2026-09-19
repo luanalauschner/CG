@@ -21,7 +21,7 @@ enunciado, além de um arquivo principal que apenas as conecta:
 
 | Arquivo | Frente de trabalho | Conteúdo |
 |---|---|---|
-| `environment.js` | **Modelagem do Ambiente** | Muralhas, torres cilíndricas e quadradas, portaria, duas construções internas, escadas, ameias, brecha e as 3 portas animadas (classe `AnimatedDoor`). |
+| `environment.js` | **Modelagem do Ambiente** | Muralhas, torres cilíndricas e quadradas, portaria, duas construções internas, escadas, ameias e as 3 portas animadas (classe `AnimatedDoor`). |
 | `collision.js` | **Sistema de Colisão** | Classe `CollisionSystem`: registro dos volumes, resolução horizontal com deslize, gravidade, subida de degraus, apoio/teto e colisão dos projéteis. |
 | `cameraShooting.js` | **Controle de câmera + Sistema de disparo** | Classe `CameraController` (1ª pessoa, orbital com a tecla `C`, mira) e classe `ShootingSystem` (arma cilíndrica, projéteis, cadência, remoção). |
 | `main.js` | — | Monta a cena, a iluminação e o plano de chão, instancia os três módulos e roda o laço de renderização. |
@@ -46,10 +46,8 @@ enunciado, além de um arquivo principal que apenas as conecta:
 - **Escadas:** as duas construções internas têm escada externa até o terraço; há
   ainda uma escada no pátio (lado oeste) que sobe até o caminho de ronda da
   muralha sul.
-- **Queda suave:** no alto da muralha sul, a leste da escada, há uma **brecha**
-  sem ameias (marcada por entulho no chão, do lado de fora). Caminhe por ela para
-  cair para fora do castelo. Também é possível cair para dentro do pátio pela
-  borda interna do caminho de ronda ou descer dos terraços.
+- **Queda suave:** é possível cair para dentro do pátio pela borda interna do
+  caminho de ronda ou descer dos terraços.
 
 ## Notas de implementação
 

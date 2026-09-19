@@ -14,7 +14,7 @@ import { STEP_HEIGHT } from './collision.js';
 const MURALHA = {
    meio:      40,   // distância do centro até a linha média de cada muralha
    espessura:  4,   // espessura da muralha (também é a largura do caminho de ronda)
-   altura:    50    // altura do topo da muralha (piso do caminho de ronda)
+   altura:    25    // altura do topo da muralha (piso do caminho de ronda)
 };
 const FACE_INT = MURALHA.meio - MURALHA.espessura / 2; // 38 - face interna
 const FACE_EXT = MURALHA.meio + MURALHA.espessura / 2; // 42 - face externa
@@ -23,8 +23,8 @@ const FACE_EXT = MURALHA.meio + MURALHA.espessura / 2; // 42 - face externa
 // para que ele não consiga atravessar as ameias e cair fora do previsto.
 const MERLAO = { largura: 1.8, vaoMax: 0.95, altura: 1.4, espessura: 0.8 };
 
-const PORTAO = { meiaLargura: 4, altura: 20 };  // vão da entrada principal
-const TORRE_CANTO = { raio: 8.5, altura: 70 }; // torres cilíndricas
+const PORTAO = { meiaLargura: 4, altura: 10 };  // vão da entrada principal
+const TORRE_CANTO = { raio: 8.5, altura: 30 }; // torres cilíndricas
 
 // Fator de escala geral do castelo
 // O jogador não é afetado - por isso o castelo fica maior/menor EM RELAÇÃO a ele.
@@ -305,14 +305,31 @@ export function createCastle(scene, collision) {
       // --- Demais muralhas -------------------------------------------------------
       bloco(-42, 42, 0, H,  FACE_INT,  FACE_EXT, matPedra); // sul
       bloco(-FACE_EXT, -FACE_INT, 0, H, -42, 42, matPedra); // oeste
-      bloco( FACE_INT,  FACE_EXT, 0, H, -42, 42, matPedra); // leste
 
-      // --- Cordão decorativo (faixa saliente) próximo ao topo, como em Bodiam ----
+      // Muralha LESTE: dividida em dois trechos independentes.
+      //  - Trecho de trás (torre intermediária -> torre de canto traseira,
+      //    z positivo): reta, igual às demais muralhas.
+      //  - Trecho da frente (torre de canto dianteira -> torre intermediária,
+      //    z negativo): muralha "torta", com apenas 3 segmentos retos (não
+      //    alinhados aos eixos) que saem da torre de canto, avançam em
+      //    diagonal para fora, viram bruscamente (quase 180°) e voltam em
+      //    diagonal até encontrar a torre intermediária.
+      const zTorreInt = 6.5; // meia largura da torre intermediária (ver construirTorresIntermediarias)
+      bloco(FACE_INT, FACE_EXT, 0, H, zTorreInt - (zTorreInt/2), 42, matPedra); // leste - trecho reto (traseiro)
+
+      // trecho torto
+      bloco(FACE_INT-5, FACE_EXT-5, 0, H, -42, zTorreInt -30, matPedra);
+      bloco(FACE_INT, FACE_EXT, 0, H, zTorreInt -30, zTorreInt + (zTorreInt/2), matPedra)
+      bloco(FACE_INT -5, FACE_EXT, 0, H, zTorreInt -35, zTorreInt-30, matPedra)
+
+      /* // --- Cordão decorativo (faixa saliente) próximo ao topo, como em Bodiam ----
       const c0 = 29.4, c1 = 30.0, s = 0.35; // saliência
       bloco(-42, 42, c0, c1, -FACE_EXT - s, -FACE_EXT, matPedraEsc, false);
       bloco(-42, 42, c0, c1,  FACE_EXT,  FACE_EXT + s, matPedraEsc, false);
-      bloco(-FACE_EXT - s, -FACE_EXT, c0, c1, -42, 42, matPedraEsc, false);
-      bloco( FACE_EXT,  FACE_EXT + s, c0, c1, -42, 42, matPedraEsc, false);
+      bloco(-FACE_EXT - s, -FACE_EXT, c0, c1, -42, 42, matPedraEsc, false); */
+      // Leste: só no trecho reto (o trecho torto da frente não tem face plana
+      // para o cordão se apoiar).
+      //cbloco( FACE_EXT,  FACE_EXT + s, c0, c1, zTorreInt, 42, matPedraEsc, false);
 
       // --- Ameias (merlões) na borda EXTERNA do caminho de ronda -----------------
       const yA0 = H, yA1 = H + MERLAO.altura;
@@ -330,12 +347,39 @@ export function createCastle(scene, collision) {
       fileiraDeMerloes('x', FACE_EXT - e, FACE_EXT, -35, -T, yA0, yA1, matAmeia);
       fileiraDeMerloes('x', FACE_EXT - e, FACE_EXT,   T, 35, yA0, yA1, matAmeia);
 
-      // Oeste e Leste: interrompidas pelas suas torres intermediárias
+      // Oeste: interrompida pela torre intermediária
       fileiraDeMerloes('z', -FACE_EXT, -FACE_EXT + e, -35, -T, yA0, yA1, matAmeia);
       fileiraDeMerloes('z', -FACE_EXT, -FACE_EXT + e,   T, 35, yA0, yA1, matAmeia);
-      fileiraDeMerloes('z',  FACE_EXT - e, FACE_EXT,  -35, -T, yA0, yA1, matAmeia);
+      // Leste: trecho reto (traseiro)
       fileiraDeMerloes('z',  FACE_EXT - e, FACE_EXT,    T, 35, yA0, yA1, matAmeia);
 
+      // Leste: trecho torto (frente) - ameias acompanhando o contorno externo
+      // do zigue-zague (recuo -> degrau de ligação -> volta à posição normal,
+      // ver os 3 blocos do "trecho torto" acima). Mesmo padrão de
+      // coroarTorreQuadrada(): a fileira que atravessa a quina (eixo x) fica
+      // inteira, e as que chegam nela (eixo z) são encurtadas em 'e' para não
+      // se sobrepor.
+      const zDegrau = zTorreInt - 35; // z do degrau que liga os dois trechos retos
+      fileiraDeMerloes('z', FACE_EXT - 5 - e, FACE_EXT - 5, -42, zDegrau - e, yA0, yA1, matAmeia); // trecho recuado
+      fileiraDeMerloes('x', zDegrau, zDegrau + e, FACE_EXT - 5, FACE_EXT, yA0, yA1, matAmeia);       // degrau de ligação
+      fileiraDeMerloes('z', FACE_EXT - e, FACE_EXT, zDegrau + e, T, yA0, yA1, matAmeia);              // volta à posição normal
+
+      // --- Escada externa até o caminho de ronda ----------------------------------
+      // Sobe do chão (baseY=0) direto até o topo da muralha sul (H), no trecho
+      // livre entre a torre de canto sudoeste e o poço. Mesmo padrão das escadas
+      // dos alojamentos/torre de menagem: corre PARALELA à parede (mesmo eixo da
+      // muralha) e fica ENCOSTADA nela (lat1 = FACE_INT, flush com a face interna),
+      // com mureta só do lado aberto (lat0, virado para o pátio) - do lado da
+      // muralha (lat1) ela já serve de "parede", como acontece com os prédios.
+      const degrausMuralha = contarDegraus(H);
+      const inicioEscadaMuralha  = -30, chegadaEscadaMuralha = -4;
+      escada({
+         eixo: 'x', inicio: inicioEscadaMuralha, sentido: +1,
+         lat0: FACE_INT - 3.5, lat1: FACE_INT,
+         baseY: 0, degraus: degrausMuralha, espelho: H / degrausMuralha,
+         piso: (chegadaEscadaMuralha - inicioEscadaMuralha) / degrausMuralha,
+         mureta: 1.0, muretas: [true, false]
+      });
    }
 
    // ============================================================================
@@ -355,7 +399,7 @@ export function createCastle(scene, collision) {
          // Coroa de merlões: 'n' blocos distribuídos em círculo no topo da torre,
          // cada um rotacionado para apontar radialmente para fora.
          // Puramente decorativo: como o jogador nunca alcança o topo da torre de
-         // canto (altura 70, sem escada até lá), estes merlões NÃO são registrados
+         // canto (sem escada até lá), estes merlões NÃO são registrados
          // como colisores (não passam por bloco(), que faz isso por padrão).
          const n = 14;
          for (let i = 0; i < n; i++) {
@@ -369,16 +413,22 @@ export function createCastle(scene, collision) {
          }
 
          // Seteiras (frestas) em espiral subindo pelo corpo da torre: a cada
-         // passo 'k' o ângulo avança 0.9 rad (~51,6°) e a altura sobe 4 unidades,
-         // então em 16 passos o ângulo dá mais de 2 voltas completas (16*0.9 ≈
-         // 14,4 rad) - o resultado é uma fileira de seteiras espalhada por toda
-         // a circunferência da torre, não só numa fatia. Também decorativo/sem
+         // passo 'k' o ângulo avança 0.9 rad (~51,6°), então em 16 passos o
+         // ângulo dá mais de 2 voltas completas (16*0.9 ≈ 14,4 rad) - o
+         // resultado é uma fileira de seteiras espalhada por toda a
+         // circunferência da torre, não só numa fatia. Também decorativo/sem
          // colisão, pelo mesmo motivo dos merlões acima.
+         // A faixa de alturas é proporcional a TORRE_CANTO.altura (em vez de
+         // um passo fixo), deixando uma margem embaixo e outra em cima (antes
+         // da cornija/merlões) - assim as seteiras nunca saem da torre, não
+         // importa o quão alta ou baixa ela esteja configurada.
+         const margemBaseSeteiras = 5, margemTopoSeteiras = 6;
+         const faixaSeteiras = Math.max(0, TORRE_CANTO.altura - margemBaseSeteiras - margemTopoSeteiras);
          for (let k = 0; k < 16; k++) {
             const ang = -Math.PI / 4 + k * 0.9;
             const s   = new THREE.Mesh(geometriaBox(0.5, 2.2, 0.4), matVao);
             s.position.set(x + Math.cos(ang) * (TORRE_CANTO.raio - 0.1),
-                           6 + k * 4,
+                           margemBaseSeteiras + (k / 15) * faixaSeteiras,
                            z + Math.sin(ang) * (TORRE_CANTO.raio - 0.1));
             s.rotation.y = -ang;
             castelo.add(s);
@@ -402,7 +452,7 @@ export function createCastle(scene, collision) {
    //    Avançam para FORA da muralha, deixando o caminho de ronda livre por dentro.
    // ============================================================================
    function construirTorresIntermediarias() {
-      const H = 65, saliencia = 12, meiaLargura = 6.5;
+      const H = 30, saliencia = 12, meiaLargura = 6.5;
 
       // Leste: corpo da torre + coroa de merlões + seteira decorativa na face externa
       bloco(FACE_EXT - 1, FACE_EXT + saliencia, 0, H, -meiaLargura, meiaLargura, matPedraEsc);
@@ -427,7 +477,7 @@ export function createCastle(scene, collision) {
       // A portaria é formada por TRÊS retângulos, como no castelo real:
       // as duas torres laterais e um bloco central do MESMO TAMANHO delas,
       // porém recuado (mais para dentro), passando através da muralha.
-      const Htorres  = 65;   // altura das três partes da portaria
+      const Htorres  = 35;   // altura das três partes da portaria
       const recuo    = 4;    // quanto o bloco central fica recuado (para dentro)
       const zFrente = -49, zFundo = -41;
       const L = PORTAO.meiaLargura;   // 4
@@ -619,7 +669,7 @@ export function createCastle(scene, collision) {
       fileiraDeMerloes('z', x1 - e, x1, z0 + e, z1 - e, lajeTopo, ay, matAmeia);
 
       // Janelas decorativas
-      for (const z of [-6, 0, 6]) {
+      for (const z of [-3, 0, 3]) {
          bloco(x0 - 0.12, x0 + 0.1, 7.5, 10.0, z - 0.6, z + 0.6, matVao, false);
       }
 
