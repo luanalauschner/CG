@@ -345,11 +345,6 @@ export function createCastle(scene, collision) {
       // Muralha LESTE: dividida em dois trechos independentes.
       //  - Trecho de trás (torre intermediária -> torre de canto traseira,
       //    z positivo): reta, igual às demais muralhas.
-      //  - Trecho da frente (torre de canto dianteira -> torre intermediária,
-      //    z negativo): muralha "torta", com apenas 3 segmentos retos (não
-      //    alinhados aos eixos) que saem da torre de canto, avançam em
-      //    diagonal para fora, viram bruscamente (quase 180°) e voltam em
-      //    diagonal até encontrar a torre intermediária.
       const zTorreInt = 6.5; // meia largura da torre intermediária (ver construirTorresIntermediarias)
       bloco(FACE_INT, FACE_EXT, 0, H, zTorreInt - (zTorreInt/2), 42, matPedra); // leste - trecho reto (traseiro)
 
@@ -425,7 +420,11 @@ export function createCastle(scene, collision) {
    // 2) TORRES CILÍNDRICAS DE CANTO
    // ============================================================================
    function construirTorresDeCanto() {
-      const canto = 40
+      // canto = MURALHA.meio: a torre fica centrada exatamente no cruzamento
+      // das linhas médias das muralhas (não na face interna nem na externa),
+      // de modo que metade do cilindro fique para dentro e metade para fora
+      // da espessura da muralha - efeito visual de torre "encaixada" na quina.
+      const canto = MURALHA.meio;
       const cantos = [[-canto, -canto], [canto, -canto], [-canto, canto], [canto, canto]];
 
       for (const [x, z] of cantos) {

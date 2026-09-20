@@ -1,3 +1,8 @@
+# Participantes do Trabalho
+Luana Lauschner - lauschner.luana@estudante.ufjf.br
+Arthur Lima - arthur.lanna@estudante.ufjf.br
+Lucas Cioletti - Lucas.cioletti@estudante.ufjf.br
+
 # T1 — First-Person Action-Adventure · Castelo de Bodiam
 
 Protótipo de FPAA desenvolvido em three.js, usando as bibliotecas do próprio
@@ -35,27 +40,3 @@ enunciado, além de um arquivo principal que apenas as conecta:
 | Look at | Movimento do mouse |
 | Disparo | Botão esquerdo ou direito do mouse |
 | Câmera orbital (inspeção) | `C` |
-
-## Onde testar cada requisito
-
-- **Deslize nas paredes:** ande encostado em qualquer muralha ou contorne uma das
-  torres cilíndricas dos cantos (elas colidem como cilindros, não como caixas).
-- **Portas animadas:** o portão principal (grade que sobe) na entrada norte, e as
-  portas dos *Alojamentos* (folha dupla, oeste do pátio) e da *Torre de Menagem*
-  (folha única, leste do pátio).
-- **Escadas:** as duas construções internas têm escada externa até o terraço; há
-  ainda uma escada no pátio (lado oeste) que sobe até o caminho de ronda da
-  muralha sul.
-- **Queda suave:** é possível cair para dentro do pátio pela borda interna do
-  caminho de ronda ou descer dos terraços.
-
-## Notas de implementação
-
-- Materiais criados com `setDefaultMaterial(cor)` e iluminação com
-  `initDefaultBasicLight(scene)`, conforme exigido no enunciado.
-- Toda a geometria usa apenas primitivas do three.js (`BoxGeometry` e
-  `CylinderGeometry`); nenhum modelo é importado.
-- O personagem é um cilindro vertical; o cenário é descrito por caixas alinhadas
-  aos eixos e cilindros verticais. Ver o cabeçalho de `collision.js` para a
-  descrição do algoritmo (inclusive do truque que faz a escada ser subida sem
-  travamentos).

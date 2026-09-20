@@ -1,18 +1,12 @@
 /**
- * =====================================================================================
- *  T1 - First-Person Action-Adventure  |  Castelo de Bodiam
- *  Computação Gráfica - Prof. Rodrigo L. S. Silva
- * =====================================================================================
- *  ARQUIVO PRINCIPAL (orquestrador)
+ *  ARQUIVO PRINCIPAL
  *
- *  Este arquivo apenas monta a cena e conecta os três módulos do trabalho:
+ *  Conecta os três módulos do trabalho:
  *
  *    environment.js    -> MODELAGEM DO AMBIENTE  (castelo, escadas, portas animadas)
  *    collision.js      -> SISTEMA DE COLISÃO     (deslize, escadas, quedas suaves)
  *    cameraShooting.js -> CONTROLE DE CÂMERA + SISTEMA DE DISPAROS
  *
- *  Conforme pedido no enunciado, os materiais dos blocos usam setDefaultMaterial(cor)
- *  e a iluminação usa initDefaultBasicLight(scene), ambos de libs/util/util.js.
  * =====================================================================================
  */
 
