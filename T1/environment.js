@@ -219,10 +219,8 @@ export function createCastle(scene, collision) {
    }
 
    /**
-    * Cria uma escada de degraus maciços.
-    * Cada degrau é um bloco que vai da base até a sua altura, formando um
-    * perfil escalonado sólido. Como o desnível de cada degrau é menor que
-    * STEP_HEIGHT (collision.js), o personagem sobe sem travar e sem sobressaltos.
+    * 
+    * Cria uma escada visual para representar os locais onde o jogador pode subir.
     *
     * @param {Object} p
     *   p.eixo     'x' ou 'z' : eixo em que a escada avança
@@ -250,18 +248,56 @@ export function createCastle(scene, collision) {
          const topo = p.baseY + (i + 1) * p.espelho;
 
          if (p.eixo === 'x') {
-            bloco(de, ate, p.baseY, topo, p.lat0, p.lat1, matDegrau);
+            bloco(de, ate, p.baseY, topo, p.lat0, p.lat1, matDegrau, false);
             if (mureta > 0 && lados[0])
                bloco(de, ate, topo, topo + mureta, p.lat0 - espMur, p.lat0, matDegrau);
             if (mureta > 0 && lados[1])
                bloco(de, ate, topo, topo + mureta, p.lat1, p.lat1 + espMur, matDegrau);
          } else {
-            bloco(p.lat0, p.lat1, p.baseY, topo, de, ate, matDegrau);
+            bloco(p.lat0, p.lat1, p.baseY, topo, de, ate, matDegrau, false);
             if (mureta > 0 && lados[0])
                bloco(p.lat0 - espMur, p.lat0, topo, topo + mureta, de, ate, matDegrau);
             if (mureta > 0 && lados[1])
                bloco(p.lat1, p.lat1 + espMur, topo, topo + mureta, de, ate, matDegrau);
          }
+      }
+   }
+
+   /**
+    * Cria uma "rampa" invisível usando centenas de micro-degraus.
+    * Como as caixas são retas, o sistema AABB do collision.js funciona perfeitamente,
+    * e como os degraus são minúsculos, a câmera desliza sem tremer.
+    */
+   function rampaInvisivel(p) {
+      const avancoTotal = p.degraus * p.piso;
+      const alturaTotal = p.degraus * p.espelho;
+
+      // Define que cada micro-degrau terá um avanço muito pequeno
+      const tamanhoMicroPiso = 0.15;
+      const qtdMicroDegraus = Math.ceil(Math.abs(avancoTotal) / tamanhoMicroPiso);
+      
+      const microPiso = Math.abs(avancoTotal) / qtdMicroDegraus;
+      const microEspelho = alturaTotal / qtdMicroDegraus;
+
+      for (let i = 0; i < qtdMicroDegraus; i++) {
+         const a = p.inicio + p.sentido * (i * microPiso);
+         const b = p.inicio + p.sentido * ((i + 1) * microPiso);
+         const de = Math.min(a, b);
+         const ate = Math.max(a, b);
+         
+         const baseDegrau = p.baseY;
+         const topoDegrau = p.baseY + ((i + 1) * microEspelho);
+
+         let meshInvisivel;
+         if (p.eixo === 'x') {
+            // Usa a própria função bloco(), que já registra a colisão no collision.js
+            meshInvisivel = bloco(de, ate, baseDegrau, topoDegrau, p.lat0, p.lat1, matDegrau);
+         } else {
+            meshInvisivel = bloco(p.lat0, p.lat1, baseDegrau, topoDegrau, de, ate, matDegrau);
+         }
+         
+         // Esconde o micro-degrau da visão do jogador
+         meshInvisivel.visible = false;
       }
    }
 
@@ -373,13 +409,16 @@ export function createCastle(scene, collision) {
       // muralha (lat1) ela já serve de "parede", como acontece com os prédios.
       const degrausMuralha = contarDegraus(H);
       const inicioEscadaMuralha  = -30, chegadaEscadaMuralha = -4;
-      escada({
+
+      const paramEscadaMuralha = {
          eixo: 'x', inicio: inicioEscadaMuralha, sentido: +1,
          lat0: FACE_INT - 3.5, lat1: FACE_INT,
          baseY: 0, degraus: degrausMuralha, espelho: H / degrausMuralha,
          piso: (chegadaEscadaMuralha - inicioEscadaMuralha) / degrausMuralha,
          mureta: 1.0, muretas: [true, false]
-      });
+      };
+      escada(paramEscadaMuralha);
+      rampaInvisivel(paramEscadaMuralha);
    }
 
    // ============================================================================
@@ -601,11 +640,14 @@ export function createCastle(scene, collision) {
 
       // Escada externa ao norte: sobe no sentido +X até o nível do terraço,
       // terminando exatamente na abertura do parapeito calculada acima.
-      escada({
+
+      const paramEscadaAlojamento = {
          eixo: 'x', inicio: x0, sentido: +1, lat0: -15.5, lat1: -12,
          baseY: 0, degraus: degrausAlojamentos, espelho: lajeTopo / degrausAlojamentos,
          piso: pisoAlojamentos, mureta: 1.0, muretas: [true, false]
-      });
+      };
+      escada(paramEscadaAlojamento);
+      rampaInvisivel(paramEscadaAlojamento);
 
       // Mobiliário simples no interior (caixotes)
       bloco(-32, -30, 0, 1.2, -9, -7, matMadeira);
@@ -676,11 +718,14 @@ export function createCastle(scene, collision) {
       // Escada externa ao sul: sobe no sentido -X até o terraço, terminando
       // exatamente na abertura do parapeito calculada acima.
       // (mureta apenas no lado externo, lat1)
-      escada({
+
+      const paramEscadaMenagem = {
          eixo: 'x', inicio: x1, sentido: -1, lat0: 10, lat1: 13,
          baseY: 0, degraus: degrausMenagem, espelho: lajeTopo / degrausMenagem,
          piso: pisoMenagem, mureta: 1.0, muretas: [false, true]
-      });
+      };
+      escada(paramEscadaMenagem);
+      rampaInvisivel(paramEscadaMenagem);
 
       // ---------------------------------------------------------------------
       // PORTA 3: folha única de madeira que GIRA para dentro

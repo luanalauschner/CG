@@ -37,12 +37,12 @@ const RAIO_JOGADOR   = 0.5;   // raio do cilindro de colisão
 const ALTURA_JOGADOR = 1.8;   // altura total do personagem
 const ALTURA_OLHOS   = 1.65;  // altura da câmera em relação aos pés
 const VELOCIDADE     = 11.0;  // velocidade de caminhada (unidades/s)
-const SUAVIZA_Y      = 14.0;  // constante de suavização da altura da câmera
+const SUAVIZA_Y      = 12.0;  // constante de suavização da altura da câmera
 // Atraso máximo permitido entre a altura da câmera e a altura real dos pés.
 // Precisa ser MAIOR que o espelho dos degraus (0,6) para que a subida de escada
 // seja totalmente suavizada, e pequeno o bastante para que a câmera não fique
 // "flutuando" durante uma queda longa.
-const ATRASO_MAX_Y   = 1.2 * STEP_HEIGHT;
+const ATRASO_MAX_Y   = 2.0 * STEP_HEIGHT;
 
 // =====================================================================================
 // A) CONTROLE DE CÂMERA
@@ -128,7 +128,7 @@ export class CameraController {
    }
 
    /**
-    * Mapeamento de teclas exigido no enunciado:
+    * Mapeamento de teclas:
     *   W / seta cima     -> frente
     *   S / seta baixo    -> ré
     *   A / seta esquerda -> straif esquerdo
@@ -213,8 +213,11 @@ export class CameraController {
       //   amortecimento apenas suaviza o instante do pouso.
       const alvoY = this.actor.position.y;
 
-      // Interpolação exponencial (resultado independente da taxa de quadros)
-      this.alturaSuave += (alvoY - this.alturaSuave) * (1 - Math.exp(-SUAVIZA_Y * delta));
+      //Suavização via lerp
+      this.alturaSuave = THREE.MathUtils.lerp(this.alturaSuave, alvoY, 10.0 * delta);
+
+      // // Interpolação exponencial (resultado independente da taxa de quadros) (DEBUG)
+      // this.alturaSuave += (alvoY - this.alturaSuave) * (1 - Math.exp(-SUAVIZA_Y * delta));
 
       // Em uma queda longa a velocidade é alta e o amortecimento acumularia um
       // atraso grande demais; aqui limitamos esse atraso.
