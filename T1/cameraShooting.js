@@ -1,26 +1,30 @@
 /**
  * =====================================================================================
- *  T1 - CONTROLE DE CÂMERA + SISTEMA DE DISPAROS
+ *  T2 - CONTROLE DE CÂMERA + ARMA (BESTA) E DARDOS
  * =====================================================================================
- *  Este módulo concentra duas responsabilidades do enunciado:
+ *  Este módulo concentra duas responsabilidades:
  *
  *  A) CameraController
  *     - Câmera em primeira pessoa usando PointerLockControls (mouse = "look at");
  *     - Movimentação WASD + setas direcionais, sempre passando pelo sistema de
  *       colisão (nada aqui move a câmera "na força bruta");
+ *     - SHIFT: corrida. A velocidade não muda de uma vez: ela é acelerada/freada
+ *       suavemente e o campo de visão abre um pouco, dando sensação de velocidade;
+ *     - ESPAÇO: pulo, com "coyote time" (ainda dá para pular logo após sair de uma
+ *       borda) e "buffer" (o pulo apertado um pouco antes de tocar o chão vale);
+ *       há um leve "afundar" da câmera ao aterrissar;
  *     - Altura da câmera SUAVIZADA em relação à altura física dos pés: é isso que
- *       elimina os sobressaltos ao subir escadas;
- *     - Câmera orbital (OrbitControls) ligada/desligada com a tecla 'c'. São duas
- *       câmeras independentes, então a posição/orientação em primeira pessoa fica
- *       naturalmente armazenada enquanto inspecionamos o ambiente;
- *     - Controle da mira (crosshair) e do painel de instruções.
+ *       elimina os sobressaltos ao subir escadas (durante o pulo ela segue direto);
+ *     - Câmera orbital (OrbitControls) ligada/desligada com a tecla 'c'.
  *
  *  B) ShootingSystem
- *     - Arma representada por um cilindro preso à câmera, centralizado na parte
- *       inferior da tela;
- *     - Projéteis (esferas) que saem da boca do cilindro na direção da mira;
- *     - Cadência de tiro, remoção ao colidir com o cenário e remoção ao ultrapassar
- *       a distância máxima.
+ *     - BESTA medieval modelada em three.js (coronha, arco/prod, corda, estribo,
+ *       gatilho), presa à câmera na parte inferior da tela;
+ *     - DARDO (virote) visível sobre a besta antes do disparo; ao disparar, a corda
+ *       fica solta e um novo dardo só aparece depois do TEMPO DE RECARGA;
+ *     - Dardos em voo seguem a trajetória (leve queda) sempre apontados na direção
+ *       do movimento; ao atingir o cenário ficam CRAVADOS por alguns segundos; ao
+ *       atingir um inimigo causam dano.
  * =====================================================================================
  */
 
@@ -33,15 +37,19 @@ import { ESCALA } from './environment.js';
 // -------------------------------------------------------------------------------------
 // Parâmetros do personagem
 // -------------------------------------------------------------------------------------
-const RAIO_JOGADOR   = 0.5;   // raio do cilindro de colisão
-const ALTURA_JOGADOR = 1.8;   // altura total do personagem
-const ALTURA_OLHOS   = 1.65;  // altura da câmera em relação aos pés
+export const RAIO_JOGADOR   = 0.5;   // raio do cilindro de colisão
+export const ALTURA_JOGADOR = 2.1;   // altura total do personagem (T1: 1.8)
+const ALTURA_OLHOS   = 1.95;  // altura da câmera em relação aos pés (T1: 1.65)
 const VELOCIDADE     = 11.0;  // velocidade de caminhada (unidades/s)
-const SUAVIZA_Y      = 12.0;  // constante de suavização da altura da câmera
+const FATOR_CORRIDA  = 1.75;  // multiplicador da velocidade com SHIFT
+const ACELERACAO     = 10.0;  // rapidez com que a velocidade atinge o alvo (no chão)
+const ACEL_NO_AR     = 2.5;   // controle reduzido no ar
+const VEL_PULO       = 7.6;   // velocidade vertical inicial do pulo (altura ~1,1 unid.)
+const COYOTE         = 0.12;  // s após sair do chão em que o pulo ainda vale
+const BUFFER_PULO    = 0.15;  // s antes de tocar o chão em que o pulo é "lembrado"
+const FOV_BASE       = 60;
+const FOV_CORRIDA    = 68;
 // Atraso máximo permitido entre a altura da câmera e a altura real dos pés.
-// Precisa ser MAIOR que o espelho dos degraus (0,6) para que a subida de escada
-// seja totalmente suavizada, e pequeno o bastante para que a câmera não fique
-// "flutuando" durante uma queda longa.
 const ATRASO_MAX_Y   = 2.0 * STEP_HEIGHT;
 
 // =====================================================================================
@@ -57,16 +65,14 @@ export class CameraController {
    constructor(scene, renderer, collision, spawn) {
       this.collision = collision;
       this.renderer  = renderer;
+      this.spawn     = spawn.clone();
 
       // --- Câmera em primeira pessoa -------------------------------------------
-      this.fpCamera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+      this.fpCamera = new THREE.PerspectiveCamera(FOV_BASE, window.innerWidth / window.innerHeight, 0.05, 2000);
       this.fpCamera.position.set(spawn.x, spawn.y + ALTURA_OLHOS, spawn.z);
       scene.add(this.fpCamera); // precisa estar na cena para a arma (filha) ser desenhada
 
       // --- Câmera orbital, usada para inspecionar o ambiente (tecla 'c') --------
-      // Começa posicionada perto da portaria (lado norte), olhando para dentro
-      // do castelo, para que a inspeção comece justamente pela entrada.
-      // As distâncias escalam com ESCALA para acompanhar o tamanho do castelo.
       this.orbitCamera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 3000);
       this.orbitCamera.position.set(0, 45 * ESCALA, -300 * ESCALA);
       this.orbitCamera.lookAt(0, 8 * ESCALA, 0);
@@ -80,6 +86,16 @@ export class CameraController {
       this.actor = createActor(spawn, RAIO_JOGADOR, ALTURA_JOGADOR);
       this.alturaSuave = spawn.y; // altura interpolada usada pela câmera
 
+      // --- Estado da movimentação ----------------------------------------------
+      this.velH          = new THREE.Vector3(); // velocidade horizontal atual
+      this.tempoNoAr     = 0;     // tempo desde que saiu do chão (coyote time)
+      this.pedidoPulo    = 0;     // tempo restante do "buffer" do pulo
+      this.pulando       = false; // true do pulo até tocar o chão de novo
+      this.afundar       = 0;     // deslocamento da câmera ao aterrissar
+      this.faseBalanco   = 0;     // fase do balanço da cabeça ao andar
+      this.balanco       = 0;     // valor atual do balanço (usado também pela arma)
+      this.correndo      = false;
+
       // --- PointerLockControls (olhar com o mouse) ------------------------------
       this.controls = new PointerLockControls(this.fpCamera, renderer.domElement);
 
@@ -87,7 +103,7 @@ export class CameraController {
       this._aguardandoLock = false; // ver alternarCameraOrbital()
 
       // --- Estado do teclado ----------------------------------------------------
-      this.teclas = { frente: false, tras: false, esquerda: false, direita: false };
+      this.teclas = { frente: false, tras: false, esquerda: false, direita: false, correr: false };
 
       // --- Elementos de interface ----------------------------------------------
       this.blocker      = document.getElementById('blocker');
@@ -133,17 +149,23 @@ export class CameraController {
     *   S / seta baixo    -> ré
     *   A / seta esquerda -> straif esquerdo
     *   D / seta direita  -> straif direito
+    *   SHIFT             -> correr (enquanto pressionado)
+    *   ESPAÇO            -> pular
     *   C                 -> alterna câmera orbital
     */
    _tecla(event, pressionada) {
-      // As setas rolariam a página; aqui elas são apenas comandos de movimento
-      if (event.code.startsWith('Arrow')) event.preventDefault();
+      // As setas e o espaço rolariam a página; aqui eles são comandos do jogo
+      if (event.code.startsWith('Arrow') || event.code === 'Space') event.preventDefault();
 
       switch (event.code) {
          case 'KeyW': case 'ArrowUp':    this.teclas.frente   = pressionada; break;
          case 'KeyS': case 'ArrowDown':  this.teclas.tras     = pressionada; break;
          case 'KeyA': case 'ArrowLeft':  this.teclas.esquerda = pressionada; break;
          case 'KeyD': case 'ArrowRight': this.teclas.direita  = pressionada; break;
+         case 'ShiftLeft': case 'ShiftRight': this.teclas.correr = pressionada; break;
+         case 'Space':
+            if (pressionada && !event.repeat && this.ativo) this.pedidoPulo = BUFFER_PULO;
+            break;
          case 'KeyC':
             // Só alterna na descida da tecla (event.repeat evita repetição automática)
             if (pressionada && !event.repeat) this.alternarCameraOrbital();
@@ -153,10 +175,8 @@ export class CameraController {
 
    /**
     * Liga/desliga a câmera orbital.
-    *
-    * A câmera em primeira pessoa NÃO é movida durante a inspeção: ela permanece
-    * exatamente onde estava (mesma posição e mesma orientação), pois o modo
-    * orbital usa uma segunda câmera. Ao voltar, o jogo continua no mesmo ponto.
+    * A câmera em primeira pessoa NÃO é movida durante a inspeção: o modo orbital
+    * usa uma segunda câmera. Ao voltar, o jogo continua no mesmo ponto.
     */
    alternarCameraOrbital() {
       this.modoOrbital = !this.modoOrbital;
@@ -164,7 +184,8 @@ export class CameraController {
       if (this.modoOrbital) {
          // Zera o teclado para o personagem não "andar sozinho" ao voltar
          this.teclas.frente = this.teclas.tras = false;
-         this.teclas.esquerda = this.teclas.direita = false;
+         this.teclas.esquerda = this.teclas.direita = this.teclas.correr = false;
+         this.velH.set(0, 0, 0);
 
          this._aguardandoLock = false;
          this.controls.unlock();      // libera o mouse para o OrbitControls
@@ -203,35 +224,59 @@ export class CameraController {
          return;
       }
 
-      if (this.controls.isLocked) this._mover(delta);
+      const estavaNoChao = this.actor.onGround;
+      const vyAntes = this.actor.velocityY;
 
-      // Altura da câmera: segue a altura física dos pés de forma AMORTECIDA.
-      // - Subindo/descendo degraus, a altura física dá pequenos saltos (0,6
-      //   unidades) que a interpolação transforma em um movimento contínuo,
-      //   dando a mesma sensação de subir uma rampa;
-      // - Na queda, a própria gravidade já produz um movimento contínuo; o
-      //   amortecimento apenas suaviza o instante do pouso.
+      // Mesmo sem o mouse capturado a gravidade continua agindo (passo zero)
+      this._mover(delta, this.controls.isLocked);
+
+      // Caiu na água (não deveria acontecer por causa das barreiras): volta ao início
+      if (this.actor.position.y < this.collision.groundY + 0.3) this.renascer();
+
+      // --- Aterrissagem: leve "afundar" proporcional à velocidade de queda -------
+      if (this.actor.onGround && !estavaNoChao && vyAntes < -6) {
+         this.afundar = Math.min(0.35, -vyAntes * 0.02);
+      }
+      if (this.actor.onGround) this.pulando = false;
+      this.afundar = Math.max(0, this.afundar - delta * 1.6);
+
+      // --- Altura da câmera ----------------------------------------------------
+      // Subindo/descendo degraus, a altura física dá pequenos saltos que a
+      // interpolação transforma em um movimento contínuo. Durante o pulo a
+      // câmera acompanha a altura real (senão o pulo pareceria "atrasado").
       const alvoY = this.actor.position.y;
+      if (this.pulando) {
+         this.alturaSuave = alvoY;
+      } else {
+         this.alturaSuave = THREE.MathUtils.lerp(this.alturaSuave, alvoY, Math.min(1, 10.0 * delta));
+         this.alturaSuave = THREE.MathUtils.clamp(this.alturaSuave,
+                                                  alvoY - ATRASO_MAX_Y, alvoY + ATRASO_MAX_Y);
+      }
 
-      //Suavização via lerp
-      this.alturaSuave = THREE.MathUtils.lerp(this.alturaSuave, alvoY, 10.0 * delta);
-
-      // // Interpolação exponencial (resultado independente da taxa de quadros) (DEBUG)
-      // this.alturaSuave += (alvoY - this.alturaSuave) * (1 - Math.exp(-SUAVIZA_Y * delta));
-
-      // Em uma queda longa a velocidade é alta e o amortecimento acumularia um
-      // atraso grande demais; aqui limitamos esse atraso.
-      this.alturaSuave = THREE.MathUtils.clamp(this.alturaSuave,
-                                               alvoY - ATRASO_MAX_Y,
-                                               alvoY + ATRASO_MAX_Y);
+      // --- Balanço da cabeça (mais forte correndo) -------------------------------
+      const rapidez = this.velH.length() / VELOCIDADE;
+      if (this.actor.onGround && rapidez > 0.1) {
+         this.faseBalanco += delta * (this.correndo ? 13 : 9) * Math.min(rapidez, 1.8);
+      }
+      const ampl = this.actor.onGround ? Math.min(rapidez, 1.8) * 0.035 : 0;
+      this.balanco = THREE.MathUtils.lerp(this.balanco, Math.sin(this.faseBalanco) * ampl,
+                                          Math.min(1, 12 * delta));
 
       this.fpCamera.position.set(this.actor.position.x,
-                                 this.alturaSuave + ALTURA_OLHOS,
+                                 this.alturaSuave + ALTURA_OLHOS - this.afundar +
+                                    Math.abs(this.balanco) * 0.8,
                                  this.actor.position.z);
+
+      // --- FOV abre um pouco durante a corrida ---------------------------------
+      const fovAlvo = (this.correndo && rapidez > 1.1) ? FOV_CORRIDA : FOV_BASE;
+      if (Math.abs(this.fpCamera.fov - fovAlvo) > 0.01) {
+         this.fpCamera.fov = THREE.MathUtils.lerp(this.fpCamera.fov, fovAlvo, Math.min(1, 6 * delta));
+         this.fpCamera.updateProjectionMatrix();
+      }
    }
 
    /** Calcula o deslocamento desejado e entrega ao sistema de colisão. */
-   _mover(delta) {
+   _mover(delta, comControle) {
       // Direção para onde a câmera olha, projetada no plano XZ
       const frente = new THREE.Vector3();
       this.fpCamera.getWorldDirection(frente);
@@ -243,20 +288,59 @@ export class CameraController {
       const direita = new THREE.Vector3().crossVectors(frente, this.fpCamera.up).normalize();
 
       let eixoFrente = 0, eixoLado = 0;
-      if (this.teclas.frente)   eixoFrente += 1;
-      if (this.teclas.tras)     eixoFrente -= 1;
-      if (this.teclas.direita)  eixoLado   += 1;
-      if (this.teclas.esquerda) eixoLado   -= 1;
+      if (comControle) {
+         if (this.teclas.frente)   eixoFrente += 1;
+         if (this.teclas.tras)     eixoFrente -= 1;
+         if (this.teclas.direita)  eixoLado   += 1;
+         if (this.teclas.esquerda) eixoLado   -= 1;
+      }
 
-      const passo = new THREE.Vector3();
-      passo.addScaledVector(frente,  eixoFrente);
-      passo.addScaledVector(direita, eixoLado);
+      const desejada = new THREE.Vector3();
+      desejada.addScaledVector(frente,  eixoFrente);
+      desejada.addScaledVector(direita, eixoLado);
+
+      // Corrida só vale andando para frente (correr de ré/de lado fica estranho)
+      this.correndo = comControle && this.teclas.correr && eixoFrente > 0;
+      const vMax = VELOCIDADE * (this.correndo ? FATOR_CORRIDA : 1);
 
       // Normaliza para que andar na diagonal não seja mais rápido
-      if (passo.lengthSq() > 1e-8) passo.normalize().multiplyScalar(VELOCIDADE * delta);
+      if (desejada.lengthSq() > 1e-8) desejada.normalize().multiplyScalar(vMax);
+
+      // Aceleração suave (exponencial, independente da taxa de quadros). No ar
+      // o controle é menor: o pulo conserva o impulso de quem estava correndo.
+      const acel = this.actor.onGround ? ACELERACAO : ACEL_NO_AR;
+      this.velH.lerp(desejada, 1 - Math.exp(-acel * delta));
+
+      // --- Pulo -------------------------------------------------------------------
+      this.tempoNoAr = this.actor.onGround ? 0 : this.tempoNoAr + delta;
+      this.pedidoPulo = Math.max(0, this.pedidoPulo - delta);
+      if (this.pedidoPulo > 0 && this.tempoNoAr < COYOTE && !this.pulando) {
+         this.actor.velocityY = VEL_PULO;
+         this.actor.onGround  = false;
+         this.pulando   = true;
+         this.pedidoPulo = 0;
+         this.tempoNoAr  = COYOTE; // impede um segundo pulo no ar
+      }
 
       // Toda a movimentação passa pelo sistema de colisão (deslize, degraus, queda)
-      this.collision.moveActor(this.actor, passo.x, passo.z, delta);
+      const antes = this.actor.position.clone();
+      this.collision.moveActor(this.actor, this.velH.x * delta, this.velH.z * delta, delta);
+
+      // Se uma parede barrou o movimento, a velocidade acompanha (evita "grudar")
+      if (delta > 0) {
+         const realX = (this.actor.position.x - antes.x) / delta;
+         const realZ = (this.actor.position.z - antes.z) / delta;
+         if (Math.abs(realX) < Math.abs(this.velH.x)) this.velH.x = realX;
+         if (Math.abs(realZ) < Math.abs(this.velH.z)) this.velH.z = realZ;
+      }
+   }
+
+   /** Volta o jogador ao ponto inicial. */
+   renascer() {
+      this.actor.position.copy(this.spawn);
+      this.actor.velocityY = 0;
+      this.velH.set(0, 0, 0);
+      this.alturaSuave = this.spawn.y;
    }
 
    /** Ajusta as duas câmeras quando a janela muda de tamanho. */
@@ -270,15 +354,98 @@ export class CameraController {
 }
 
 // =====================================================================================
-// B) SISTEMA DE DISPAROS
+// B) BESTA + DARDOS
 // =====================================================================================
 
-const PROJETIL = {
-   raio:      0.16,
-   velocidade: 80.0,  // unidades/s
-   alcance:   260.0, // distância máxima
-   passoMax:  0.6    // maior avanço por sub-passo
+const DARDO = {
+   comprimento: 0.62,
+   velocidade:  75.0,   // unidades/s
+   gravidade:   3.5,    // queda leve (o dardo é pesado e rápido)
+   alcance:     320.0,  // distância máxima
+   passoMax:    0.4,    // maior avanço por sub-passo (teste de colisão)
+   tempoCravado: 8.0,   // s que o dardo fica preso na parede
+   maxCravados: 30
 };
+const RECARGA = 0.9; // tempo (s) entre um disparo e o próximo
+
+// Materiais (Lambert) da besta e dos dardos
+const MAT = {
+   madeira:     new THREE.MeshLambertMaterial({ color: "rgb(120,74,40)" }),
+   madeiraClara:new THREE.MeshLambertMaterial({ color: "rgb(170,120,70)" }),
+   ferro:       new THREE.MeshLambertMaterial({ color: "rgb(78,80,88)" }),
+   aco:         new THREE.MeshLambertMaterial({ color: "rgb(165,170,180)" }),
+   corda:       new THREE.MeshLambertMaterial({ color: "rgb(225,212,180)" }),
+   haste:       new THREE.MeshLambertMaterial({ color: "rgb(196,160,108)" }),
+   pena:        new THREE.MeshLambertMaterial({ color: "rgb(170,30,30)", side: THREE.DoubleSide }),
+   penaClara:   new THREE.MeshLambertMaterial({ color: "rgb(235,230,220)", side: THREE.DoubleSide })
+};
+
+/** Cilindro fino ligando dois pontos (cordas, tirantes). */
+function cilindroEntre(a, b, raio, material) {
+   const dir = new THREE.Vector3().subVectors(b, a);
+   const m = new THREE.Mesh(new THREE.CylinderGeometry(raio, raio, dir.length(), 6), material);
+   m.position.copy(a).addScaledVector(dir, 0.5);
+   m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+   return m;
+}
+
+/**
+ * Cria um DARDO de besta (virote) apontando para -Z (ponta em z = -0.1):
+ *   - ponta de aço em forma de pirâmide de 4 faces (ponta "bodkin", perfurante);
+ *   - haste de madeira, um pouco mais grossa que a de uma flecha comum;
+ *   - três empenas (aletas) triangulares, a 120° umas das outras, na traseira;
+ *   - anel de reforço (atadura) entre haste e empenas.
+ */
+function criarDardo() {
+   const L = DARDO.comprimento;
+   const dardo = new THREE.Group();
+
+   const ponta = new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.1, 4), MAT.aco);
+   ponta.rotation.x = -Math.PI / 2;          // cone aponta para -Z
+   ponta.position.z = -0.05;
+   dardo.add(ponta);
+
+   const encaixe = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.015, 0.04, 8), MAT.ferro);
+   encaixe.rotation.x = Math.PI / 2;
+   encaixe.position.z = 0.015;
+   dardo.add(encaixe);
+
+   const haste = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, L - 0.1, 8), MAT.haste);
+   haste.rotation.x = Math.PI / 2;
+   haste.position.z = 0.1 + (L - 0.1) / 2 - 0.1;
+   dardo.add(haste);
+
+   const atadura = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.03, 8), MAT.corda);
+   atadura.rotation.x = Math.PI / 2;
+   atadura.position.z = L - 0.2;
+   dardo.add(atadura);
+
+   // Empena: triângulo retângulo (perfil de "vela") no plano YZ
+   const perfil = new THREE.Shape();
+   perfil.moveTo(0, 0);
+   perfil.lineTo(0.17, 0);
+   perfil.lineTo(0.15, 0.045);
+   perfil.lineTo(0.03, 0.045);
+   perfil.closePath();
+   const geoEmpena = new THREE.ShapeGeometry(perfil);
+   for (let i = 0; i < 3; i++) {
+      const suporte = new THREE.Group();
+      suporte.rotation.z = i * (2 * Math.PI / 3);
+      const empena = new THREE.Mesh(geoEmpena, i === 0 ? MAT.pena : MAT.penaClara);
+      // Shape no plano XY: gira para o comprimento ficar ao longo de +Z
+      empena.rotation.y = -Math.PI / 2;
+      empena.position.set(0, 0.009, L - 0.27);
+      suporte.add(empena);
+      dardo.add(suporte);
+   }
+
+   const nock = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.011, 0.03, 8), MAT.ferro);
+   nock.rotation.x = Math.PI / 2;
+   nock.position.z = L - 0.1 + 0.005;
+   dardo.add(nock);
+
+   return dardo;
+}
 
 export class ShootingSystem {
 
@@ -286,367 +453,282 @@ export class ShootingSystem {
     * @param {THREE.Scene} scene
     * @param {CameraController} cameraCtrl
     * @param {CollisionSystem} collision
+    * @param {SistemaDeInimigos} inimigos alvos que podem receber dano
     */
-   constructor(scene, cameraCtrl, collision) {
-
+   constructor(scene, cameraCtrl, collision, inimigos) {
       this.scene      = scene;
       this.cameraCtrl = cameraCtrl;
       this.collision  = collision;
+      this.inimigos   = inimigos;
 
-      this.projeteis = [];
+      this.dardos   = [];   // em voo ou cravados
+      this.recarga  = RECARGA; // tempo desde o último disparo
+      this.recuo    = 0;       // animação de recuo da besta
 
-      this.cadencia = 0.15;
-      this.tempoDesdeTiro = this.cadencia;
+      this.barraRecarga = document.querySelector('#recarga .valor');
 
-      // Geometria e material dos projéteis
-      this.geoProjetil = new THREE.SphereGeometry(
-         PROJETIL.raio,
-         12,
-         12
-      );
-
-      this.matProjetil = new THREE.MeshLambertMaterial({
-         color: "rgb(255,210,60)"
-      });
-
-      this._criarArma();
+      this._criarBesta();
       this._registrarEventos();
    }
 
    /**
-    * Cria a arma presa à câmera.
+    * Modela a besta (frente para -Z), presa à câmera, centralizada na parte
+    * inferior da tela.
     */
-   _criarArma() {
+   _criarBesta() {
+      const besta = new THREE.Group();
 
-      this.arma = new THREE.Group();
+      // --- Coronha (stock) e trilho -------------------------------------------
+      const coronha = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.07, 0.95), MAT.madeira);
+      coronha.position.set(0, -0.035, -0.08);
+      besta.add(coronha);
 
-      const comprimento = 1.5;
+      // Culatra mais larga, inclinada para baixo, que apoia no ombro
+      const culatra = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.14, 0.3), MAT.madeira);
+      culatra.position.set(0, -0.09, 0.42);
+      culatra.rotation.x = 0.18;
+      besta.add(culatra);
 
-      const cano = new THREE.Mesh(
-         new THREE.CylinderGeometry(
-            0.13,
-            0.17,
-            comprimento,
-            20
-         ),
-         new THREE.MeshLambertMaterial({
-            color: "rgb(70,74,82)"
-         })
-      );
+      // Trilho (sulco) onde o dardo se apoia
+      for (const lado of [-1, 1]) {
+         const borda = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.014, 0.8), MAT.madeiraClara);
+         borda.position.set(lado * 0.022, 0.006, -0.15);
+         besta.add(borda);
+      }
 
-      // Cilindro aponta para -Z
-      cano.rotation.x = -Math.PI / 2;
+      // --- Arco (prod) de aço: tubo ao longo de uma curva --------------------------
+      const curvaArco = new THREE.CatmullRomCurve3([
+         new THREE.Vector3(-0.46, 0.0, -0.40),
+         new THREE.Vector3(-0.25, 0.0, -0.52),
+         new THREE.Vector3( 0.00, 0.0, -0.56),
+         new THREE.Vector3( 0.25, 0.0, -0.52),
+         new THREE.Vector3( 0.46, 0.0, -0.40)
+      ]);
+      const arco = new THREE.Mesh(new THREE.TubeGeometry(curvaArco, 40, 0.018, 8, false), MAT.aco);
+      besta.add(arco);
+      // Ponteiras do arco (onde a corda se prende)
+      for (const lado of [-1, 1]) {
+         const ponteira = new THREE.Mesh(new THREE.SphereGeometry(0.024, 10, 8), MAT.ferro);
+         ponteira.position.set(lado * 0.46, 0, -0.40);
+         besta.add(ponteira);
+      }
+      // Cabeça da coronha onde o arco é preso + amarração
+      const cabeca = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.09, 0.09), MAT.ferro);
+      cabeca.position.set(0, -0.02, -0.55);
+      besta.add(cabeca);
 
-      this.arma.add(cano);
+      // --- Estribo (para armar com o pé) -------------------------------------------
+      const estribo = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.01, 6, 20, Math.PI), MAT.ferro);
+      estribo.rotation.set(Math.PI / 2, 0, 0);
+      estribo.position.set(0, -0.02, -0.6);
+      besta.add(estribo);
 
-      // Anel na ponta do cano
-      const anel = new THREE.Mesh(
-         new THREE.CylinderGeometry(
-            0.19,
-            0.19,
-            0.16,
-            20
-         ),
-         new THREE.MeshLambertMaterial({
-            color: "rgb(150,140,90)"
-         })
-      );
+      // --- Noz (trava da corda), gatilho e cintas de ferro --------------------------
+      const noz = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.06, 12), MAT.aco);
+      noz.rotation.z = Math.PI / 2;
+      noz.position.set(0, 0.012, 0.12);
+      besta.add(noz);
 
-      anel.rotation.x = -Math.PI / 2;
-      anel.position.z = -comprimento / 2;
+      const gatilho = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.2, 0.025), MAT.ferro);
+      gatilho.position.set(0, -0.15, 0.24);
+      gatilho.rotation.x = -0.35;
+      besta.add(gatilho);
 
-      this.arma.add(anel);
+      for (const z of [-0.42, 0.02, 0.3]) {
+         const cinta = new THREE.Mesh(new THREE.BoxGeometry(0.082, 0.078, 0.02), MAT.ferro);
+         cinta.position.set(0, -0.035, z);
+         besta.add(cinta);
+      }
 
-      // Boca do cano
-      this.boca = new THREE.Object3D();
+      // --- Corda: armada (puxada até a noz) e solta (reta entre as ponteiras) -------
+      const pE = new THREE.Vector3(-0.46, 0, -0.40), pD = new THREE.Vector3(0.46, 0, -0.40);
+      const pNoz = new THREE.Vector3(0, 0.012, 0.1);
+      this.cordaArmada = new THREE.Group();
+      this.cordaArmada.add(cilindroEntre(pE, pNoz, 0.005, MAT.corda),
+                           cilindroEntre(pD, pNoz, 0.005, MAT.corda));
+      this.cordaSolta = cilindroEntre(pE, pD, 0.005, MAT.corda);
+      this.cordaSolta.visible = false;
+      besta.add(this.cordaArmada, this.cordaSolta);
 
-      this.boca.position.set(
-         0,
-         0,
-         -comprimento / 2 - 0.1
-      );
+      // --- Dardo carregado, apoiado no trilho -----------------------------------------
+      // Ponta um pouco à frente do arco; traseira encostada na noz
+      this.dardoCarregado = criarDardo();
+      this.posDardo = new THREE.Vector3(0, 0.024, 0.095 - (DARDO.comprimento - 0.09));
+      this.dardoCarregado.position.copy(this.posDardo);
+      besta.add(this.dardoCarregado);
 
-      this.arma.add(this.boca);
+      // Posição da besta na tela: centralizada, na parte inferior
+      this.posBase = new THREE.Vector3(0, -0.36, -0.62);
+      besta.position.copy(this.posBase);
+      besta.rotation.x = 0.04;
 
-      // Posição da arma na tela
-      this.arma.position.set(
-         0,
-         -0.45,
-         -1.0
-      );
+      // A besta não projeta sombra (ela "flutua" junto à câmera), só recebe
+      besta.traverse(o => { if (o.isMesh) { o.receiveShadow = true; o.userData.semSombra = true; } });
 
-      this.arma.rotation.x = 0.05;
-
-      this.cameraCtrl.fpCamera.add(this.arma);
+      this.arma = besta;
+      this.cameraCtrl.fpCamera.add(besta);
    }
 
-   /**
-    * Registra os eventos de disparo.
-    */
+   /** Registra os eventos de disparo (qualquer botão do mouse). */
    _registrarEventos() {
-
       document.addEventListener('mousedown', (event) => {
-
          if (!this.cameraCtrl.ativo) return;
-
-         if (event.button === 0 || event.button === 2) {
-            this.atirar();
-         }
+         if (event.button === 0 || event.button === 2) this.atirar();
       });
-
-      document.addEventListener(
-         'contextmenu',
-         (event) => event.preventDefault()
-      );
+      document.addEventListener('contextmenu', (event) => event.preventDefault());
    }
 
-   /**
-    * Cria um novo projétil.
-    */
+   get pronto() { return this.recarga >= RECARGA; }
+
+   /** Dispara o dardo carregado (se a recarga já terminou). */
    atirar() {
-
-      // Verifica cadência
-      if (this.tempoDesdeTiro < this.cadencia) return;
-
-      this.tempoDesdeTiro = 0;
+      if (!this.pronto) return;
+      this.recarga = 0;
+      this.recuo = 1;
 
       const camera = this.cameraCtrl.fpCamera;
+      camera.updateMatrixWorld(true);
 
-      // ---------------------------------------------------
-      // ORIGEM DO PROJÉTIL
-      // ---------------------------------------------------
-
+      // Posição/orientação de partida = as do dardo que estava na besta
       const origem = new THREE.Vector3();
+      this.dardoCarregado.getWorldPosition(origem);
 
-      this.boca.getWorldPosition(origem);
+      // Direção: do dardo até o ponto para onde a mira (centro da tela) aponta
+      const dirCamera = new THREE.Vector3();
+      camera.getWorldDirection(dirCamera);
+      const alvo = camera.position.clone().addScaledVector(dirCamera, 60);
+      const direcao = alvo.sub(origem).normalize();
 
-      // ---------------------------------------------------
-      // DIREÇÃO DO TIRO
-      // ---------------------------------------------------
+      const malha = criarDardo();
+      malha.position.copy(origem);
+      malha.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), direcao);
+      malha.traverse(o => { if (o.isMesh) o.castShadow = true; });
+      this.scene.add(malha);
 
-      const direcaoCamera = new THREE.Vector3();
-
-      camera.getWorldDirection(direcaoCamera);
-
-      const alvo = new THREE.Vector3()
-         .copy(camera.position)
-         .addScaledVector(
-            direcaoCamera,
-            PROJETIL.alcance
-         );
-
-      const direcao = alvo
-         .sub(origem)
-         .normalize();
-
-      // ---------------------------------------------------
-      // CRIA A ESFERA
-      // ---------------------------------------------------
-
-      const mesh = new THREE.Mesh(
-         this.geoProjetil,
-         this.matProjetil
-      );
-
-      mesh.position.copy(origem);
-
-      this.scene.add(mesh);
-
-      // ---------------------------------------------------
-      // VELOCIDADE INICIAL
-      // ---------------------------------------------------
-
-      const velocidade = direcao
-         .clone()
-         .multiplyScalar(PROJETIL.velocidade);
-
-      // ---------------------------------------------------
-      // REGISTRA O PROJÉTIL
-      // ---------------------------------------------------
-
-      this.projeteis.push({
-
-         mesh: mesh,
-
-         // Direção original do disparo
-         direcao: direcao.clone(),
-
-         // Velocidade física atual
-         velocidade: velocidade,
-
-         // Distância percorrida
-         percorrido: 0
+      this.dardos.push({
+         malha,
+         velocidade: direcao.multiplyScalar(DARDO.velocidade),
+         percorrido: 0,
+         cravado: false,
+         tempo: 0
       });
+
+      // Besta descarregada: some o dardo e a corda fica solta até recarregar
+      this.dardoCarregado.visible = false;
+      this.cordaArmada.visible = false;
+      this.cordaSolta.visible = true;
+   }
+
+   _removerDardo(i) {
+      this.scene.remove(this.dardos[i].malha);
+      this.dardos.splice(i, 1);
    }
 
    /**
-    * Atualiza todos os projéteis.
-    *
-    * O projétil:
-    *   - sofre gravidade;
-    *   - movimenta-se em pequenos sub-passos;
-    *   - colide com paredes;
-    *   - quica ao atingir uma superfície;
-    *   - continua caindo após a colisão;
-    *   - é removido ao atingir o alcance máximo.
+    * Atualiza a recarga, a animação da besta e todos os dardos.
     */
    update(delta) {
+      // --- Recarga -----------------------------------------------------------------
+      const estavaPronto = this.pronto;
+      this.recarga = Math.min(RECARGA, this.recarga + delta);
+      const prog = this.recarga / RECARGA;
+      if (this.barraRecarga) {
+         this.barraRecarga.style.width = (prog * 100).toFixed(0) + '%';
+         this.barraRecarga.parentElement.style.opacity = prog < 1 ? '1' : '0';
+      }
+      // Na segunda metade da recarga a corda é armada e o novo dardo desliza
+      // para o trilho, de trás para frente
+      if (prog > 0.45) {
+         this.cordaArmada.visible = true;
+         this.cordaSolta.visible = false;
+         this.dardoCarregado.visible = true;
+         const s = Math.min(1, (prog - 0.45) / 0.55);
+         const suave = s * s * (3 - 2 * s);
+         this.dardoCarregado.position.copy(this.posDardo);
+         this.dardoCarregado.position.z += (1 - suave) * 0.35;
+      }
+      if (!estavaPronto && this.pronto) this.dardoCarregado.position.copy(this.posDardo);
 
-      this.tempoDesdeTiro += delta;
+      // --- Recuo e balanço da besta -----------------------------------------------
+      this.recuo = Math.max(0, this.recuo - delta * 5);
+      const r = this.recuo * this.recuo;
+      const bal = this.cameraCtrl.balanco;
+      this.arma.position.set(this.posBase.x + bal * 0.6,
+                             this.posBase.y - Math.abs(bal) * 0.5 + r * 0.02,
+                             this.posBase.z + r * 0.12);
+      this.arma.rotation.x = 0.04 + r * 0.18;
 
-      for (
-         let i = this.projeteis.length - 1;
-         i >= 0;
-         i--
-      ) {
+      // --- Dardos -----------------------------------------------------------------
+      const ponta = new THREE.Vector3();
+      const frente = new THREE.Vector3();
+      let cravados = 0;
 
-         const p = this.projeteis[i];
+      for (let i = this.dardos.length - 1; i >= 0; i--) {
+         const d = this.dardos[i];
+         d.tempo += delta;
 
+         if (d.cravado) {
+            cravados++;
+            if (d.tempo > DARDO.tempoCravado) this._removerDardo(i);
+            continue;
+         }
+
+         d.velocidade.y -= DARDO.gravidade * delta;
+
+         const avanco = d.velocidade.length() * delta;
+         const nSub = Math.max(1, Math.ceil(avanco / DARDO.passoMax));
+         const passo = delta / nSub;
          let remover = false;
 
-         // ------------------------------------------------
-         // GRAVIDADE
-         // ------------------------------------------------
-
-         p.velocidade.y -= 9.81 * delta;
-
-         // ------------------------------------------------
-         // DISTÂNCIA PERCORRIDA NESTE FRAME
-         // ------------------------------------------------
-
-         const avanco =
-            p.velocidade.length() * delta;
-
-         // Número de sub-passos
-         const nSub = Math.max(
-            1,
-            Math.ceil(
-               avanco / PROJETIL.passoMax
-            )
-         );
-
-         // Tempo de cada sub-passo
-         const passo = delta / nSub;
-
-         // ------------------------------------------------
-         // SUB-PASSOS
-         // ------------------------------------------------
-
          for (let s = 0; s < nSub; s++) {
+            d.malha.position.addScaledVector(d.velocidade, passo);
+            d.percorrido += d.velocidade.length() * passo;
 
-            // Movimento da esfera
-            p.mesh.position.addScaledVector(
-               p.velocidade,
-               passo
-            );
+            // O dardo sempre aponta para onde está indo
+            frente.copy(d.velocidade).normalize();
+            d.malha.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), frente);
+            ponta.copy(d.malha.position).addScaledVector(frente, 0.1); // ponta do dardo
 
-            // Atualiza distância percorrida
-            p.percorrido +=
-               p.velocidade.length() * passo;
-
-            // ------------------------------------------------
-            // COLISÃO
-            // ------------------------------------------------
-
-            const colisao =
-               this.collision.sphereCollision(
-                  p.mesh.position,
-                  PROJETIL.raio
-               );
-
-            if (colisao !== null) {
-
-               // Normal da superfície
-               const normal = new THREE.Vector3(
-                  colisao.nx,
-                  colisao.ny,
-                  colisao.nz
-               );
-
-               // ------------------------------------------------
-               // REMOVE A PENETRAÇÃO
-               // ------------------------------------------------
-
-               p.mesh.position.addScaledVector(
-                  normal,
-                  colisao.depth + 0.001
-               );
-
-               // ------------------------------------------------
-               // VELOCIDADE CONTRA A SUPERFÍCIE
-               // ------------------------------------------------
-
-               const velocidadeNormal =
-                  p.velocidade.dot(normal);
-
-               // Só rebate se estiver indo contra a superfície
-               if (velocidadeNormal < 0) {
-
-                  // 0 = não quica
-                  // 0.65 = quique moderado
-                  // 1 = quique perfeito
-                  const restituição = 0.1;
-
-                  p.velocidade.addScaledVector(
-                     normal,
-                     -(1 + restituição) *
-                     velocidadeNormal
-                  );
-
-                  // Reduz a velocidade total após o ricochete
-                  const fatorPerda = 0.5;
-
-                  p.velocidade.multiplyScalar(fatorPerda);
-               }
-
-               // ------------------------------------------------
-               // IMPORTANTE:
-               // NÃO REMOVE O PROJÉTIL.
-               // Ele continua se movimentando.
-               // ------------------------------------------------
-            }
-
-            // ------------------------------------------------
-            // ALCANCE MÁXIMO
-            // ------------------------------------------------
-
-            if (
-               p.percorrido >=
-               PROJETIL.alcance
-            ) {
-
+            // 1) Inimigos
+            const alvo = this.inimigos ? this.inimigos.testarAcerto(ponta) : null;
+            if (alvo) {
+               this.inimigos.atingir(alvo);
                remover = true;
                break;
             }
+
+            // 2) Cenário: o dardo fica cravado (um pouco "enterrado" na superfície)
+            const colisao = this.collision.sphereCollision(ponta, 0.03);
+            if (colisao !== null) {
+               if (ponta.y <= this.collision.groundY + 0.05) { remover = true; break; } // afundou na água
+               d.malha.position.addScaledVector(frente, 0.06 - colisao.depth);
+               d.cravado = true;
+               d.tempo = 0;
+               break;
+            }
+
+            if (d.percorrido >= DARDO.alcance) { remover = true; break; }
          }
 
-         // ---------------------------------------------------
-         // REMOVE PROJÉTIL
-         // ---------------------------------------------------
+         if (remover) this._removerDardo(i);
+      }
 
-         if (remover) {
-
-            this.scene.remove(p.mesh);
-
-            this.projeteis.splice(i, 1);
-         }
+      // Limita a quantidade de dardos cravados (remove os mais antigos)
+      while (cravados > DARDO.maxCravados) {
+         const idx = this.dardos.findIndex(d => d.cravado);
+         if (idx < 0) break;
+         this._removerDardo(idx);
+         cravados--;
       }
    }
 
-   /**
-    * Quantidade de projéteis ativos.
-    */
+   /** Quantidade de dardos em voo. */
    get quantidade() {
-
-      return this.projeteis.length;
+      return this.dardos.filter(d => !d.cravado).length;
    }
 
-   /**
-    * Esconde ou mostra a arma.
-    */
+   /** Esconde ou mostra a besta. */
    setVisivel(v) {
-
       this.arma.visible = v;
    }
 }
-
