@@ -1,111 +1,151 @@
 /**
- *  ARQUIVO PRINCIPAL
+ *  ARQUIVO PRINCIPAL - T2
  *
- *  Conecta os três módulos do trabalho:
+ *  Conecta os módulos do trabalho:
  *
- *    environment.js    -> MODELAGEM DO AMBIENTE  (castelo, escadas, portas animadas)
- *    collision.js      -> SISTEMA DE COLISÃO     (deslize, escadas, quedas suaves)
- *    cameraShooting.js -> CONTROLE DE CÂMERA + SISTEMA DE DISPAROS
+ *    environment.js    -> AMBIENTE: castelo, ilha, acesso (ponte) e elementos CSG
+ *                         (seteiras, pórtico, torres cilíndricas acessíveis)
+ *    interior.js       -> INTERIOR DO CASTELO: pedestais, escotilha e portal
+ *    lighting.js       -> ILUMINAÇÃO: dia (10h) / noite (18h), sombras
+ *    enemies.js        -> INIMIGOS importados (luz pontual + barra de energia)
+ *    keys.js           -> CHAVES (coleta, HUD, tecla K, pedestais)
+ *    cameraShooting.js -> CÂMERA (corrida, pulo) + BESTA e DARDOS
+ *    collision.js      -> SISTEMA DE COLISÃO
  *
  * =====================================================================================
  */
 
 import * as THREE from 'three';
 import { initRenderer,
-         initDefaultBasicLight,
-         createGroundPlaneXZ,
          onWindowResize,
          InfoBox,
          SecondaryBox } from "../libs/util/util.js";
 
 import { CollisionSystem } from './collision.js';
-import { createCastle, ESCALA } from './environment.js';
-import { CameraController, ShootingSystem } from './cameraShooting.js';
+import { createCastle, ESCALA, NIVEL_AGUA } from './environment.js';
+import { createInterior } from './interior.js';
+import { SistemaDeIluminacao } from './lighting.js';
+import { SistemaDeInimigos } from './enemies.js';
+import { SistemaDeChaves } from './keys.js';
+import { CameraController, ShootingSystem, ALTURA_JOGADOR } from './cameraShooting.js';
 
 // -------------------------------------------------------------------------------------
-// 1) CENA, RENDERIZADOR E ILUMINAÇÃO
+// 1) CENA, RENDERIZADOR E ILUMINAÇÃO (dia/noite)
 // -------------------------------------------------------------------------------------
 const scene    = new THREE.Scene();
-const renderer = initRenderer("rgb(132,178,226)");   // cor do céu
-initDefaultBasicLight(scene);                        // iluminação padrão do enunciado
+const renderer = initRenderer("rgb(132,178,226)", THREE.PCFShadowMap);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+const luzes    = new SistemaDeIluminacao(scene, renderer);
 
 // -------------------------------------------------------------------------------------
-// 2) PLANO DE CHÃO
-//    Plano grande sobre o qual o castelo é construído. O sistema de colisão trata o
-//    chão como um plano infinito em y = 0 (ver CollisionSystem.groundY).
+// 2) SISTEMA DE COLISÃO, AMBIENTE E INTERIOR
+//    O "chão infinito" do sistema de colisão agora é o nível da água (plano base);
+//    a ilha do castelo e o acesso têm colisores próprios, mais altos que ele.
 // -------------------------------------------------------------------------------------
-const chao = createGroundPlaneXZ(600, 600, 40, 40, "rgb(104,132,80)");
-scene.add(chao);
-
-// -------------------------------------------------------------------------------------
-// 3) SISTEMA DE COLISÃO E MODELAGEM DO AMBIENTE
-//    O castelo registra automaticamente todos os seus volumes de colisão.
-// -------------------------------------------------------------------------------------
-const collision = new CollisionSystem(0.0);
+const collision = new CollisionSystem(NIVEL_AGUA * ESCALA);
 const castelo   = createCastle(scene, collision);
+const interior  = createInterior(scene, collision);
 
 // -------------------------------------------------------------------------------------
-// 4) JOGADOR: CÂMERA EM PRIMEIRA PESSOA E SISTEMA DE DISPAROS
-//    O jogador nasce em frente à portaria, de costas para o campo, olhando o castelo.
+// 3) JOGADOR: CÂMERA EM PRIMEIRA PESSOA
+//    O jogador nasce sobre a ponte de acesso, olhando para o portão do castelo.
 // -------------------------------------------------------------------------------------
-// A distância até a portaria (-72, -49) foi calibrada para o castelo em
-// tamanho original: escalamos junto com ESCALA para continuar em frente à
-// entrada mesmo que o castelo fique maior/menor.
 const spawn      = new THREE.Vector3(0, 0, -72 * ESCALA);
 const cameraCtrl = new CameraController(scene, renderer, collision, spawn);
-const disparos   = new ShootingSystem(scene, cameraCtrl, collision);
-
-// Olha inicialmente para a entrada do castelo
-cameraCtrl.fpCamera.lookAt(0, 6 * ESCALA, -49 * ESCALA);
+cameraCtrl.fpCamera.lookAt(0, 8 * ESCALA, -49 * ESCALA);
 
 // -------------------------------------------------------------------------------------
-// 5) INTERFACE
+// 4) CHAVES, INIMIGOS E ARMA
+// -------------------------------------------------------------------------------------
+const chaves   = new SistemaDeChaves(scene, interior);
+const inimigos = new SistemaDeInimigos(scene, (posicao) => chaves.soltarChave(posicao));
+const besta    = new ShootingSystem(scene, cameraCtrl, collision, inimigos);
+
+// Inimigos só aparecem à noite
+luzes.aoMudar((noite) => inimigos.setNoite(noite));
+
+// Tecla 'H': alterna entre dia (10h) e noite (18h)
+window.addEventListener('keydown', (e) => {
+   if (e.code === 'KeyH' && !e.repeat) luzes.alternar();
+});
+
+// -------------------------------------------------------------------------------------
+// 5) SOMBRAS EM TODOS OS ELEMENTOS
+//    Todos os objetos projetam e recebem sombra, exceto o que está marcado como
+//    'semSombra' (a besta presa à câmera), a água (só recebe) e o Sol/Lua.
+// -------------------------------------------------------------------------------------
+function configurarSombras(raiz) {
+   raiz.traverse((o) => {
+      if (!o.isMesh) return;
+      o.receiveShadow = true;
+      o.castShadow = !o.userData.semSombra;
+   });
+}
+configurarSombras(scene);
+scene.getObjectByName('agua').castShadow = false;
+luzes.astro.castShadow = luzes.astro.receiveShadow = false;
+
+// -------------------------------------------------------------------------------------
+// 6) INTERFACE
 // -------------------------------------------------------------------------------------
 const info = new InfoBox();
-   info.add("T1 - Castelo de Bodiam (FPAA)");
+   info.add("T2 - Castelo de Bodiam (FPAA)");
    info.addParagraph();
    info.add("Movimentação: W A S D ou setas");
-   info.add("Olhar: mouse");
-   info.add("Disparo: botão esquerdo ou direito do mouse");
-   info.add("Câmera orbital: tecla C");
-   info.addParagraph();
-   /* info.add("Suba a escada do pátio até a muralha sul");
-   info.add("e caminhe pela borda interna para testar a queda."); */
+   info.add("Correr: SHIFT   |   Pular: ESPAÇO");
+   info.add("Olhar: mouse   |   Disparo: botões do mouse");
+   info.add("H: dia / noite (inimigos só à noite)");
+   info.add("K: pegar todas as chaves / voltar");
+   info.add("C: câmera orbital");
    info.show();
 
 const status = new SecondaryBox("");
 status.changeStyle("rgba(0,0,0,0.35)", "white", "18px");
 
 // -------------------------------------------------------------------------------------
-// 6) REDIMENSIONAMENTO DA JANELA (as duas câmeras precisam ser corrigidas)
+// 7) REDIMENSIONAMENTO DA JANELA (as duas câmeras precisam ser corrigidas)
 // -------------------------------------------------------------------------------------
 window.addEventListener('resize', function () {
-   onWindowResize(cameraCtrl.camera, renderer); // ajusta o renderer e a câmera ativa
-   cameraCtrl.onResize();                       // garante a outra câmera também
+   onWindowResize(cameraCtrl.camera, renderer);
+   cameraCtrl.onResize();
 }, false);
 
 // -------------------------------------------------------------------------------------
-// 7) LAÇO PRINCIPAL
+// 8) LAÇO PRINCIPAL
 // -------------------------------------------------------------------------------------
 const clock = new THREE.Clock();
+let sombrasInimigosOk = false;
 
 render();
 function render() {
    // Limita o delta para que uma pausa longa (troca de aba) não teleporte o jogador
    const delta = Math.min(clock.getDelta(), 0.05);
 
+   // Os modelos dos inimigos chegam de forma assíncrona: configura as sombras
+   // deles assim que terminarem de carregar
+   if (!sombrasInimigosOk && inimigos.carregado) {
+      for (const ini of inimigos.inimigos) configurarSombras(ini.raiz);
+      // as barras de energia não projetam sombra
+      for (const ini of inimigos.inimigos) ini.barra.traverse(o => { o.castShadow = false; });
+      sombrasInimigosOk = true;
+   }
+
    collision.refreshDynamic();                             // caixas das portas em movimento
    castelo.update(delta, cameraCtrl.actor.position);       // animação das portas
    cameraCtrl.update(delta);                               // câmera + movimentação
-   disparos.update(delta);                                 // projéteis
+   inimigos.update(delta, cameraCtrl.camera);              // patrulha, dano, morte
+   besta.update(delta);                                    // recarga e dardos
+   chaves.update(delta, cameraCtrl.actor.position, ALTURA_JOGADOR);
+   interior.update(delta);                                 // pedestais e portal
 
    // A arma só aparece na visão em primeira pessoa
-   disparos.setVisivel(!cameraCtrl.modoOrbital);
+   besta.setVisivel(!cameraCtrl.modoOrbital);
 
    status.changeMessage(
-      (cameraCtrl.modoOrbital ? "Câmera orbital (C volta para 1ª pessoa)"
-                              : "Primeira pessoa (C inspeciona o ambiente)") +
-      "  |  projéteis ativos: " + disparos.quantidade
+      luzes.nomeHorario +
+      (luzes.noite ? `  |  inimigos: ${inimigos.vivos}` : "  |  aperte H para a noite") +
+      (cameraCtrl.modoOrbital ? "  |  câmera orbital (C volta)" : "") +
+      (cameraCtrl.correndo ? "  |  correndo" : "")
    );
 
    renderer.render(scene, cameraCtrl.camera);
