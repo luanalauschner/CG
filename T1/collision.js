@@ -1,6 +1,6 @@
 /**
  * =====================================================================================
- *  T1 - SISTEMA DE COLISÃO
+ *  T2 - SISTEMA DE COLISÃO
  * =====================================================================================
  *  Responsável por:
  *    - Registrar os "colisores" (volumes de colisão) de todos os elementos do cenário;
@@ -81,14 +81,18 @@ export class CollisionSystem {
     *                            recalculada a cada quadro em refreshDynamic()
     *        options.isActive -> função que retorna false para desligar o colisor
     *                            (usado para "desligar" a porta quando ela abre)
+    *        options.onlyActor -> true para colisores que só bloqueiam o JOGADOR
+    *                            (barreiras invisíveis na beira d'água): os dardos
+    *                            passam direto por eles.
     */
    addBox(mesh, options = {}) {
       const collider = {
-         type:     'box',
-         mesh:     mesh,
-         box:      new THREE.Box3().setFromObject(mesh),
-         dynamic:  options.dynamic === true,
-         isActive: options.isActive || null
+         type:      'box',
+         mesh:      mesh,
+         box:       new THREE.Box3().setFromObject(mesh),
+         dynamic:   options.dynamic === true,
+         isActive:  options.isActive || null,
+         onlyActor: options.onlyActor === true
       };
       this.colliders.push(collider);
       return collider;
@@ -101,19 +105,21 @@ export class CollisionSystem {
     *
     * @param {THREE.Object3D} mesh malha do cilindro
     * @param {number} radius raio de colisão
+    * @param {Object} options mesmas opções de addBox (isActive / onlyActor)
     */
-   addCylinder(mesh, radius) {
+   addCylinder(mesh, radius, options = {}) {
       const box = new THREE.Box3().setFromObject(mesh);
       const collider = {
-         type:     'cylinder',
-         mesh:     mesh,
-         x:        (box.min.x + box.max.x) * 0.5,
-         z:        (box.min.z + box.max.z) * 0.5,
-         radius:   radius,
-         minY:     box.min.y,
-         maxY:     box.max.y,
-         dynamic:  false,
-         isActive: null
+         type:      'cylinder',
+         mesh:      mesh,
+         x:         (box.min.x + box.max.x) * 0.5,
+         z:         (box.min.z + box.max.z) * 0.5,
+         radius:    radius,
+         minY:      box.min.y,
+         maxY:      box.max.y,
+         dynamic:   false,
+         isActive:  options.isActive || null,
+         onlyActor: options.onlyActor === true
       };
       this.colliders.push(collider);
       return collider;
@@ -445,6 +451,9 @@ sphereCollision(center, radius) {
       const c = this.colliders[i];
 
       if (!this._isActive(c)) continue;
+
+      // Barreiras invisíveis só existem para o jogador
+      if (c.onlyActor) continue;
 
       // Verifica se a esfera está dentro da altura do objeto
       if (center.y + radius < this._bottomOf(c)) continue;
