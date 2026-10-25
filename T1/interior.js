@@ -2,14 +2,14 @@
  * =====================================================================================
  *  T2 - INTERIOR DO CASTELO: PEDESTAIS, ESCOTILHA E PORTAL
  * =====================================================================================
- *  No pátio fica uma praça circular com uma ESCOTILHA no chão, cercada por quatro
- *  PEDESTAIS. Ao chegar perto de um pedestal carregando uma chave, a chave é
- *  colocada sobre ele (ver keys.js) e a luz pontual daquele pedestal acende.
- *  Com as quatro chaves posicionadas, as duas folhas da escotilha se abrem e o
- *  PORTAL (poço iluminado, recortado na ilha via CSG em environment.js) é revelado.
+ *    No pátio fica uma praça circular com uma escotilha no chão, cercada por quatro
+ *  pedestais. Ao chegar perto de um pedestal carregando uma chave, a chave é
+ *  colocada sobre ele e uma luz pontual acende.
+ * 
+ *    Com as quatro chaves posicionadas, as duas folhas da escotilha se abrem e o
+ *  poço é revelado.
  *
- *  Todas as peças usam MeshLambertMaterial (o brilho do portal vem do atributo
- *  emissive). As coordenadas são do castelo (o grupo é escalado por ESCALA).
+ *    Todas as peças usam MeshLambertMaterial.
  * =====================================================================================
  */
 
@@ -17,6 +17,8 @@ import * as THREE from 'three';
 import { setDefaultMaterial } from '../libs/util/util.js';
 import { CSG } from '../libs/other/CSGMesh.js';
 import { ESCALA, ESCOTILHA } from './environment.js';
+
+// Criando os objetos do interior do castelo: praça, aro, escotilha, pedestais e portal.
 
 const PRACA    = { raio: 8, altura: 0.12 };
 const PEDESTAL = { distancia: 5.5, altura: 1.05 };   // distância até o centro da escotilha
@@ -44,7 +46,7 @@ export function createInterior(scene, collision) {
    const matAnel    = new THREE.MeshLambertMaterial({ color: "rgb(120,200,255)",
                                                       emissive: "rgb(20,40,70)" });
 
-   /** Converte uma geometria posicionada em sólido CSG (padrão de examples/geometryCSG.js). */
+   /** Converte uma geometria posicionada em sólido CSG padrão de examples/geometryCSG.js. */
    function solido(geometria, x, y, z) {
       const m = new THREE.Mesh(geometria);
       m.position.set(x, y, z);
@@ -53,7 +55,7 @@ export function createInterior(scene, collision) {
    }
 
    // ----------------------------------------------------------------------------
-   // PRAÇA E ARO (CSG: disco menos o furo da escotilha)
+   // PRAÇA E ARO CSG: disco menos o furo da escotilha
    // ----------------------------------------------------------------------------
    const furo = solido(new THREE.CylinderGeometry(ESCOTILHA.raio, ESCOTILHA.raio, 2, 40), 0, 0, 0);
 
@@ -68,7 +70,7 @@ export function createInterior(scene, collision) {
    grupo.add(aro);
 
    // ----------------------------------------------------------------------------
-   // PORTAL: fundo luminoso do poço + anéis girando + luz (acende ao abrir)
+   // PORTAL: fundo luminoso do poço + anéis girando + luz 
    // ----------------------------------------------------------------------------
    const yFundo = -ESCOTILHA.profundidade + 0.05;
    const fundo = new THREE.Mesh(new THREE.CircleGeometry(ESCOTILHA.raio, 40), matPortal);
@@ -90,7 +92,7 @@ export function createInterior(scene, collision) {
    grupo.add(luzPortal);
 
    // ----------------------------------------------------------------------------
-   // ESCOTILHA: duas folhas semicirculares com dobradiças nas bordas (x = ±raio)
+   // ESCOTILHA: duas folhas semicirculares com dobradiças nas bordas
    // Cada folha gira em torno da sua dobradiça (eixo Z) até ficar em pé.
    // ----------------------------------------------------------------------------
    const r = ESCOTILHA.raio - 0.02, espFolha = 0.2;
@@ -102,21 +104,25 @@ export function createInterior(scene, collision) {
 
       // CylinderGeometry com thetaLength = PI gera meio disco. Em three.js o
       // ângulo é medido de +Z para +X, então [0,PI] é o lado +X e [PI,2PI] o -X.
+
       const meioDisco = new THREE.CylinderGeometry(r, r, espFolha, 32, 1, false,
                                                    lado < 0 ? Math.PI : 0, Math.PI);
       const folha = new THREE.Mesh(meioDisco, matMadeira);
       folha.position.set(-lado * r, espFolha / 2 - 0.08, 0); // centro do disco no centro da escotilha
       pivo.add(folha);
 
-      // Duas cintas de ferro sobre a folha (do diâmetro até perto da borda).
+      // Duas cintas de ferro sobre a folha 
       // Posições relativas ao centro do disco: a folha ocupa o lado 'lado' em X.
+
       for (const z of [-1.1, 1.1]) {
          const comp = Math.sqrt(r * r - z * z) - 0.15;
          const cinta = new THREE.Mesh(new THREE.BoxGeometry(comp, 0.06, 0.3), matFerro);
          cinta.position.set(lado * (comp / 2 + 0.05), espFolha / 2 + 0.01, z);
          folha.add(cinta);
       }
+
       // Argola perto do diâmetro (por onde a folha seria puxada)
+
       const argola = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.04, 6, 16), matFerro);
       argola.rotation.x = Math.PI / 2;
       argola.position.set(lado * 0.45, espFolha / 2 + 0.03, 0);
@@ -126,6 +132,7 @@ export function createInterior(scene, collision) {
    }
 
    // Com o portal aberto, um cilindro invisível impede o jogador de andar sobre o poço
+
    const bloqueio = new THREE.Mesh(new THREE.CylinderGeometry(ARO.raioExt, ARO.raioExt, 3, 16));
    bloqueio.position.y = 1.5;
    bloqueio.visible = false;
@@ -133,10 +140,12 @@ export function createInterior(scene, collision) {
    grupo.updateMatrixWorld(true);
 
    // ----------------------------------------------------------------------------
-   // PEDESTAIS (base, coluna octogonal, capitel e taça para a chave)
+   // pedestais base, coluna octogonal e taça para a chave
    // ----------------------------------------------------------------------------
+
    const pedestais = [];
    for (let i = 0; i < 4; i++) {
+
       const ang = Math.PI / 4 + i * Math.PI / 2;
       const px = Math.cos(ang) * PEDESTAL.distancia, pz = Math.sin(ang) * PEDESTAL.distancia;
 
@@ -154,7 +163,8 @@ export function createInterior(scene, collision) {
       taca.position.y = 0.95 + 0.075;
       ped.add(base, coluna, capitel, taca);
 
-      // Colisor do pedestal (cilindro do tamanho da base)
+      // Colisor do pedestal  usando cilindro do tamanho da base
+
       const col = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, PEDESTAL.altura, 8));
       col.position.y = PEDESTAL.altura / 2;
       col.visible = false;
@@ -162,9 +172,9 @@ export function createInterior(scene, collision) {
       grupo.updateMatrixWorld(true);
       collision.addCylinder(col, 0.55 * ESCALA);
 
-      // Luz pontual da chave: criada desde o início com intensidade 0 para que
-      // acender não mude a quantidade de luzes da cena (o que forçaria a
-      // recompilação de todos os shaders e causaria um "engasgo").
+      // Luz pontual da chave: criada desde o início com intensidade 0 para que não mude
+      // a quantidade de luzes da cena 
+
       const luz = new THREE.PointLight("rgb(255,200,90)", 0, 9 * ESCALA, 1.6);
       luz.position.y = PEDESTAL.altura + RAIO_CHAVE + 0.5;
       ped.add(luz);
@@ -179,6 +189,7 @@ export function createInterior(scene, collision) {
    // ----------------------------------------------------------------------------
    // ESTADO E ANIMAÇÃO
    // ----------------------------------------------------------------------------
+
    let aberto = false;   // o portal já foi liberado (4 chaves)?
    let t = 0;            // progresso da abertura [0,1]
    let tempo = 0;
@@ -195,9 +206,10 @@ export function createInterior(scene, collision) {
       get chavesPosicionadas() { return pedestais.filter(p => p.chave !== null).length; },
 
       /**
-       * Coloca uma chave (malha criada por keys.js) sobre o pedestal 'i'.
+       * Coloca uma chave sobre o pedestal 'i'.
        * A chave sobe um pouco ao ser posicionada e a luz acende gradualmente.
        */
+
       colocarChave(i, malha) {
          const p = pedestais[i];
          p.chave = malha;
@@ -211,6 +223,7 @@ export function createInterior(scene, collision) {
          tempo += delta;
 
          // Chaves nos pedestais: animação de encaixe + luz acendendo
+
          for (const p of pedestais) {
             if (!p.chave) continue;
             p.tempo += delta;
@@ -220,12 +233,14 @@ export function createInterior(scene, collision) {
             p.chave.rotation.y += delta * 1.5;
          }
 
-         // Abertura da escotilha (smoothstep para um movimento suave)
+         // Abertura da escotilha
+
          if (aberto && t < 1) t = Math.min(1, t + delta * 0.45);
          const s = t * t * (3 - 2 * t);
          for (const f of folhas) f.pivo.rotation.z = -f.lado * s * THREE.MathUtils.degToRad(105);
 
-         // Portal: brilho cresce com a abertura e pulsa; os anéis giram
+         // Portal
+
          const pulso = 0.75 + 0.25 * Math.sin(tempo * 3);
          matPortal.emissive.setRGB(0.12 + 0.55 * s * pulso, 0.04 + 0.25 * s * pulso, 0.24 + 0.75 * s * pulso);
          matAnel.emissive.setRGB(0.08 + 0.4 * s, 0.16 + 0.6 * s, 0.27 + 0.73 * s);

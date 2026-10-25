@@ -3,22 +3,23 @@
  *  T2 - ILUMINAÇÃO: SISTEMA DE DIA E NOITE
  * =====================================================================================
  *  Dois horários (tecla 'H' alterna):
- *    - 10h: luz do SOL, alta no céu, vinda do leste -> sombras curtas;
- *    - 18h: luz da LUA, azulada e fraca, vinda do oeste. Os inimigos só aparecem
+ * 
+ *    - 10h: luz do sol, alta no céu, vinda do leste -> sombras curtas
+ *    - 18h: luz da lua, azulada e fraca, vinda do oeste. Os inimigos só aparecem
  *      neste turno.
  *
  *  Luzes da cena:
- *    - luz DIRECIONAL PRINCIPAL (Sol/Lua): única que projeta sombra, em todos os
+ *    - luz direcional principal Sol/Lua: única que projeta sombra, em todos os
  *      elementos do ambiente;
- *    - luz DIRECIONAL DE PREENCHIMENTO, mais fraca, na direção aproximadamente
- *      oposta à principal e SEM sombra (só clareia as faces que ficariam pretas);
- *    - luz AMBIENTE (HemisphereLight) bem fraca, para o céu/chão.
- *  Um disco emissivo (Sol ou Lua) é desenhado no céu, na direção da luz principal.
+ *    - luz direcional de preenchimento, mais fraca, na direção aproximadamente
+ *      oposta à principal e sem sombra que só clareia as faces que ficariam pretas;
+ *    - luz ambiente HemisphereLight bem fraca, para o céu/chão.
+ *      Um disco emissivo do sol ou da lua é desenhado no céu, na direção da luz principal.
  *
- *  SOMBRAS - qualidade x desempenho:
- *    - O frustum ortográfico da sombra cobre só o castelo (onde há objetos que
- *      projetam sombra), concentrando a resolução do mapa onde ela importa;
- *    - mapa de 4096x4096 com filtro PCF (renderer.shadowMap.type);
+ *  sombras - qualidade x desempenho:
+ *    - A da sombra cobre só o castelo onde há objetos que
+ *      projetam sombra, concentrando a resolução do mapa onde ela importa;
+ *    - mapa de 4096x4096 com filtro PCF;
  *    - bias/normalBias ajustados para não haver "acne" nem "peter-panning".
  * =====================================================================================
  */
@@ -27,7 +28,11 @@ import * as THREE from 'three';
 import { ESCALA } from './environment.js';
 
 // Configuração de cada horário.
-//   elevacao/azimute: direção de onde vem a luz principal (graus)
+// elevacao/azimute: direção de onde vem a luz principal em graus
+
+
+// Definindo horários de iluminação para o sistema de dia e noite
+
 const HORARIOS = {
    dia: {
       nome: 'Dia (10h)',
@@ -61,7 +66,8 @@ export class SistemaDeIluminacao {
       this.renderer = renderer;
       this.ouvintes = [];  // funções chamadas com (noite) ao trocar o horário
 
-      // --- Luz principal (com sombra) ---------------------------------------------
+      // --- Luz principal ---------------------------------------------
+
       this.principal = new THREE.DirectionalLight(0xffffff, 1);
       this.principal.castShadow = true;
       const sh = this.principal.shadow;
@@ -74,19 +80,22 @@ export class SistemaDeIluminacao {
       sh.normalBias = 0.06;
       sh.radius = 2;
       scene.add(this.principal);
-      scene.add(this.principal.target); // alvo na origem (centro do castelo)
+      scene.add(this.principal.target); // alvo na origem 
 
-      // --- Luz de preenchimento (oposta, sem sombra) -------------------------------
+      // --- Luz de preenchimento oposta, sem sombra
+
       this.preench = new THREE.DirectionalLight(0xffffff, 1);
       this.preench.castShadow = false;
       scene.add(this.preench);
       scene.add(this.preench.target);
 
-      // --- Luz ambiente -----------------------------------------------------------
+      // --- Luz ambiente 
+
       this.ambiente = new THREE.HemisphereLight(0xffffff, 0x000000, 1);
       scene.add(this.ambiente);
 
-      // --- Sol / Lua (disco emissivo no céu, não recebe nem projeta sombra) --------
+      // --- Sol / Lua disco emissivo no céu, não recebe nem projeta sombra
+
       this.matAstro = new THREE.MeshLambertMaterial({ color: 0x000000, emissive: 0xffffff, fog: false });
       this.astro = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), this.matAstro);
       scene.add(this.astro);
@@ -100,6 +109,7 @@ export class SistemaDeIluminacao {
    get nomeHorario() { return HORARIOS[this.noite ? 'noite' : 'dia'].nome; }
 
    /** Registra uma função chamada sempre que o horário muda. */
+
    aoMudar(fn) { this.ouvintes.push(fn); fn(this.noite); }
 
    alternar() {
@@ -111,6 +121,7 @@ export class SistemaDeIluminacao {
       const h = HORARIOS[this.noite ? 'noite' : 'dia'];
 
       // Direção de onde vem a luz principal
+
       const el = THREE.MathUtils.degToRad(h.principal.elevacao);
       const az = THREE.MathUtils.degToRad(h.principal.azimute);
       const dir = new THREE.Vector3(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
@@ -120,6 +131,7 @@ export class SistemaDeIluminacao {
       this.principal.position.copy(dir).multiplyScalar(DIST_LUZ);
 
       // Preenchimento: direção oposta no plano horizontal, vindo de cima
+      
       this.preench.color.set(h.preench.cor);
       this.preench.intensity = h.preench.intensidade;
       this.preench.position.set(-dir.x, 0.6, -dir.z).normalize().multiplyScalar(DIST_LUZ);

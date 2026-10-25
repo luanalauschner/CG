@@ -3,12 +3,15 @@
  *  T2 - CHAVES
  * =====================================================================================
  *  - Ao ser eliminado, cada inimigo solta uma CHAVE: uma esfera com MeshPhongMaterial
- *    e atributo emissive (brilha mesmo no escuro);
+ *    e atributo emissive;
+ * 
  *  - A chave é adquirida quando o jogador chega suficientemente perto dela;
- *  - O HUD (canto superior direito) mostra quantas chaves o jogador carrega e
+ * 
+ *  - O HUD mostra quantas chaves o jogador carrega e
  *    quantas já estão nos pedestais;
+ * 
  *  - Perto de um pedestal vazio, uma chave carregada é posicionada sobre ele
- *    (a luz pontual do pedestal acende, ver interior.js);
+ * 
  *  - Tecla 'K': atribui todas as chaves ao jogador; pressionando de novo, ele volta
  *    a ter as chaves que possuía antes.
  * =====================================================================================
@@ -78,11 +81,30 @@ export class SistemaDeChaves {
    }
 
    /** Chamado quando um inimigo morre: a chave aparece no lugar dele. */
-   soltarChave(posicao) {
-      const malha = criarMalhaChave(this.raio);
-      malha.position.copy(posicao);
-      this.scene.add(malha);
-      this.noChao.push({ malha, base: posicao.clone(), tempo: 0 });
+   /** Chamado quando um inimigo morre: a chave aparece no lugar dele. */
+soltarChave(posicao) {
+   const malha = criarMalhaChave(this.raio);
+   malha.position.copy(posicao);
+
+   // Luz pontual emitida pela chave
+   const luz = new THREE.PointLight(
+      0xffaa33, // Cor alaranjada
+      3.0,      // Intensidade
+      8.0,      // Alcance da luz
+      2.0       // Atenuação
+   );
+
+   luz.position.set(0, 0.3, 0);
+   malha.add(luz);
+
+   this.scene.add(malha);
+
+   this.noChao.push({
+      malha,
+      luz,
+      base: posicao.clone(),
+      tempo: 0
+      });
    }
 
    /**
@@ -124,12 +146,15 @@ export class SistemaDeChaves {
                               c.base.z);
          c.malha.rotation.y += delta * 2;
 
-         if (c.tempo > 0.4 && c.malha.position.distanceTo(peito) < DIST_COLETA) {
-            this.scene.remove(c.malha);
-            this.noChao.splice(i, 1);
-            if (this.trapaca) this.salvas++;   // mantém o progresso real
-            else              this.carregadas++;
-            this._atualizarHUD(true);
+            if (c.tempo > 0.4 && c.malha.position.distanceTo(peito) < DIST_COLETA) {
+                   this.scene.remove(c.malha);
+
+               this.noChao.splice(i, 1);
+
+               if (this.trapaca) this.salvas++;
+               else this.carregadas++;
+
+               this._atualizarHUD(true);
          }
       }
 
