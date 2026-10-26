@@ -67,6 +67,7 @@ const ILHA = { x0: -62, x1: 62, z0: -60, z1: 62, yBase: -6 };
 // -0.2), para os dois elementos não ficarem coplanares (Z-fighting). A trilha
 // de areia fica, por sua vez, um pouco acima do gramado do acesso.
 const ACESSO = { yTopo: -0.2, yAreia: -0.08 };
+const ATERRO = { meiaLargura: 6.5 };   // aterro entre a ilha do castelo e o octógono
 
 // Escotilha circular do portal (interior do castelo, ver interior.js).
 // O poço sob a escotilha é recortado da ilha via CSG nesta função.
@@ -89,6 +90,45 @@ const DEGRAU = {
 /** Quantidade de degraus para vencer 'alturaTotal' usando o degrau-alvo do castelo. */
 function contarDegraus(alturaTotal) {
    return Math.max(1, Math.ceil(alturaTotal / DEGRAU.espelhoAlvo));
+}
+
+/**
+ * Geometria em formato de MEIA LUA (semicírculo com espessura).
+ *
+ * O contorno é desenhado com THREE.Shape (lado reto + arco de 180°) e ganha
+ * volume com THREE.ExtrudeGeometry. Resultado:
+ *   - lado reto (diâmetro) apoiado em y = 0, de x = -raio até x = +raio;
+ *   - arco para cima (+Y), com o topo em y = raio;
+ *   - espessura ao longo de Z, centrada em z = 0.
+ * Com 'raioInterno' > 0 o miolo é removido e a peça vira um MEIO ANEL (um
+ * arco, útil para molduras de portas e janelas).
+ *
+ * A geometria funciona direto com THREE.Mesh e também com a CSG
+ * (CSG.fromMesh aceita geometrias não indexadas, como a do ExtrudeGeometry).
+ *
+ * @param {number} raio        raio externo da meia lua
+ * @param {number} espessura   espessura (profundidade em Z)
+ * @param {number} raioInterno raio do vão interno (0 = meia lua cheia)
+ * @param {number} segmentos   quantidade de segmentos do arco (suavidade)
+ * @returns {THREE.BufferGeometry}
+ */
+export function geometriaMeiaLua(raio, espessura, raioInterno = 0, segmentos = 32) {
+   const contorno = new THREE.Shape();
+   contorno.moveTo(raio, 0);
+   contorno.absarc(0, 0, raio, 0, Math.PI, false);       // arco externo: da direita para a esquerda
+   if (raioInterno > 0) {
+      contorno.lineTo(-raioInterno, 0);                  // base reta do lado esquerdo
+      contorno.absarc(0, 0, raioInterno, Math.PI, 0, true); // arco interno, voltando para a direita
+   }
+   contorno.closePath();                                 // fecha pela base reta
+
+   const geo = new THREE.ExtrudeGeometry(contorno, {
+      depth: espessura,
+      bevelEnabled: false,
+      curveSegments: segmentos
+   });
+   geo.translate(0, 0, -espessura / 2);                  // centraliza a espessura em z = 0
+   return geo;
 }
 
 // =====================================================================================
@@ -129,6 +169,8 @@ export function createCastle(scene, collision) {
    const matGramaAc  = setDefaultMaterial("rgb(110,150,78)");    // gramado do acesso (verde um pouco mais claro que a ilha)
    const matAreia    = setDefaultMaterial("rgb(222,196,140)");   // trilha de areia do acesso
    const matAgua     = setDefaultMaterial("rgb(58,104,148)");    // plano base (água do fosso)
+   const matArrimo   = setDefaultMaterial("rgb(122,98,72)");     // muro de arrimo de pedra nas laterais do aterro
+   const matRuina    = setDefaultMaterial("rgb(178,150,108)");   // pedra envelhecida da barbacã
 
    const doors = []; // portas animadas criadas ao longo da modelagem
 
@@ -215,6 +257,45 @@ export function createCastle(scene, collision) {
       // é recalculado a partir da geometria (só x/z/minY/maxY vêm da caixa
       // envolvente), o raio precisa ser escalado manualmente aqui.
       if (colide) collision.addCylinder(mesh, raio * ESCALA);
+      return mesh;
+   }
+
+   // Meia lua de raio 1 e espessura 1, compartilhada por todas as peças: cada
+   // malha só ajusta a escala (o mesmo truque do cache de caixas/cilindros).
+   const geoMeiaLuaUnitaria = geometriaMeiaLua(1, 1);
+
+   /**
+    * Cria uma peça em MEIA LUA a partir dos seus LIMITES, no mesmo padrão de
+    * bloco(): a meia lua ocupa exatamente a caixa [x0,x1] x [y0,y1] x [z0,z1].
+    *   - a base reta fica embaixo (y0) e o arco sobe até o topo (y1);
+    *   - a ESPESSURA fica no eixo horizontal mais fino da caixa, e o arco se
+    *     estende pelo outro (como uma parede com o topo arredondado);
+    *   - se a altura for diferente da metade da largura, o arco vira meia
+    *     elipse (a geometria unitária é escalada em cada eixo).
+    *
+    * @param {number} x0,x1 limites mínimo/máximo no eixo X
+    * @param {number} y0,y1 base (lado reto) e topo do arco
+    * @param {number} z0,z1 limites mínimo/máximo no eixo Z
+    * @param {THREE.Material} material material (sempre criado via setDefaultMaterial)
+    * @param {boolean} colide se false, é apenas decoração (não entra na colisão)
+    * @returns {THREE.Mesh} a malha criada (já adicionada ao grupo "castelo")
+    */
+   function meiaLua(x0, x1, y0, y1, z0, z1, material, colide = true) {
+      const espessuraEmX = (x1 - x0) < (z1 - z0);
+      const largura    = espessuraEmX ? (z1 - z0) : (x1 - x0); // diâmetro do arco
+      const espessura  = espessuraEmX ? (x1 - x0) : (z1 - z0);
+
+      const mesh = new THREE.Mesh(geoMeiaLuaUnitaria, material);
+      // Escala aplicada antes da rotação: x = diâmetro, y = altura, z = espessura
+      mesh.scale.set(largura / 2, y1 - y0, espessura);
+      // Espessura em X: gira 90° para o arco ficar ao longo de Z
+      if (espessuraEmX) mesh.rotation.y = Math.PI / 2;
+      mesh.position.set((x0 + x1) / 2, y0, (z0 + z1) / 2);
+      castelo.add(mesh);
+
+      // O colisor é a caixa envolvente (inclui os "cantos" acima do arco):
+      // simples e suficiente para impedir que o jogador atravesse a peça.
+      if (colide) collision.addBox(mesh);
       return mesh;
    }
 
@@ -678,9 +759,13 @@ export function createCastle(scene, collision) {
       rampaInvisivel(paramEscada);
 
       // --- Alçapão na laje -------------------------------------------------------
-      // Começa onde a cabeça do jogador já passaria da laje e vai até depois do
-      // último degrau. Valores relativos ao centro (multiplicados pelos sinais).
-      const alc = { x0: -1.3, x1: 3.8, z0: 1.7, z1: 4.5 };
+      // Vai de perto do pé da escada até depois do último degrau. O começo
+      // (x0) precisa deixar folga para a CABEÇA do jogador: se a abertura
+      // começasse muito adiante, na DESCIDA a cabeça bateria na borda de baixo
+      // da laje (o colisor trata isso como parede) e o jogador ficaria preso
+      // no terraço. Com x0 = -2.6 sobra ~0.9 de folga em toda a escada.
+      // Valores relativos ao centro (multiplicados pelos sinais do canto).
+      const alc = { x0: -2.6, x1: 3.8, z0: 1.7, z1: 4.5 };
       const ax0 = cx + Math.min(sx * alc.x0, sx * alc.x1), ax1 = cx + Math.max(sx * alc.x0, sx * alc.x1);
       const az0 = cz + Math.min(sz * alc.z0, sz * alc.z1), az1 = cz + Math.max(sz * alc.z0, sz * alc.z1);
       cortes.push(solidoCSG(new THREE.BoxGeometry(ax1 - ax0, A.yTerraco - A.yTeto + 0.4, az1 - az0),
@@ -1163,6 +1248,11 @@ export function createCastle(scene, collision) {
    //      acesso           -> topo em y = -0.2  (gramado, ligeiramente mais baixo)
    //      trilha           -> topo em y = -0.08 (areia, sobre o gramado do acesso)
    // ============================================================================
+
+   function construcaoEntrada(){
+      bloco(-6,  -4, -1, 10.0, -80, -75, matPedra, false);
+      meiaLua(-6,  -4, 10, 12, -80, -75, matPedra, false);
+   }
    function construirIlhaEAcesso() {
       // --- Plano base: água ------------------------------------------------------
       const agua = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), matAgua);
@@ -1184,15 +1274,22 @@ export function createCastle(scene, collision) {
 
       // --- Acesso ----------------------------------------------------------------
       const yT = ACESSO.yTopo, yA = ACESSO.yAreia, yB = ILHA.yBase;
-      const oct = { x: 0, z: -98, raio: 13 };                // ilha octogonal
+      const oct = { x: 0, z: -100, raio: 17 };               // ilha octogonal
       const apotema = oct.raio * Math.cos(Math.PI / 8);      // distância centro -> lado
-      const zPonte1 = oct.z + apotema;                       // ponte encosta no lado do octógono
+      const zPonte1 = oct.z + apotema;                       // aterro encosta no lado do octógono
       const xMargem = -150;                                  // começo da margem (terra firme)
       const zPass0 = oct.z - 6, zPass1 = oct.z + 6;          // largura do passadiço
+      const W = ATERRO.meiaLargura;
 
-      // Ponte (aterro) da ilha do castelo até o octógono
-      bloco(-6, 6, yB, yT, zPonte1, ILHA.z0, matGramaAc);
+      // Aterro da ilha do castelo até o octógono: corpo de pedra (muro de arrimo,
+      // visível acima da água) com uma camada de grama por cima e a trilha de
+      // areia no meio, como no modelo de referência
+      bloco(-W, W, yB, yT - 0.35, zPonte1, ILHA.z0, matArrimo);
+      bloco(-W, W, yT - 0.35, yT, zPonte1, ILHA.z0, matGramaAc);
       bloco(-3.5, 3.5, yT, yA, zPonte1, ILHA.z0, matAreia, false);
+
+      // Construção feia na entrada
+      construcaoEntrada()
 
       // Octógono: CylinderGeometry de 8 lados, girado 22,5° para ficar com um lado
       // virado para a ponte. O colisor é um cilindro com o raio do lado (apótema).
@@ -1201,7 +1298,7 @@ export function createCastle(scene, collision) {
       octo.rotation.y = Math.PI / 8;
       castelo.add(octo);
       collision.addCylinder(octo, apotema * ESCALA);
-      const octoAreia = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, yA - yT, 8), matAreia);
+      const octoAreia = new THREE.Mesh(new THREE.CylinderGeometry(12, 12, yA - yT, 8), matAreia);
       octoAreia.position.set(oct.x, (yT + yA) / 2, oct.z);
       octoAreia.rotation.y = Math.PI / 8;
       castelo.add(octoAreia);
@@ -1214,22 +1311,22 @@ export function createCastle(scene, collision) {
       bloco(-600, xMargem, yB, yT, -600, 600, matGramaAc);
 
       // --- Barreiras invisíveis na beira d'água -----------------------------------
-      // Ilha do castelo (aberta só onde a ponte chega)
-      barreira(ILHA.x0, -6, ILHA.z0, ILHA.z0 + 0.6, 0);
-      barreira(6, ILHA.x1, ILHA.z0, ILHA.z0 + 0.6, 0);
+      // Ilha do castelo (aberta só onde o aterro chega)
+      barreira(ILHA.x0, -W, ILHA.z0, ILHA.z0 + 0.6, 0);
+      barreira(W, ILHA.x1, ILHA.z0, ILHA.z0 + 0.6, 0);
       barreira(ILHA.x0, ILHA.x1, ILHA.z1 - 0.6, ILHA.z1, 0);
       barreira(ILHA.x0, ILHA.x0 + 0.6, ILHA.z0, ILHA.z1, 0);
       barreira(ILHA.x1 - 0.6, ILHA.x1, ILHA.z0, ILHA.z1, 0);
-      // Laterais da ponte
-      barreira(-6, -5.4, zPonte1, ILHA.z0, yT);
-      barreira(5.4, 6, zPonte1, ILHA.z0, yT);
+      // Laterais do aterro
+      barreira(-W, -W + 0.6, zPonte1, ILHA.z0, yT);
+      barreira(W - 0.6, W, zPonte1, ILHA.z0, yT);
       // Contorno do octógono (anel de pequenas caixas), aberto para a ponte (+z)
       // e para o passadiço (-x)
       const nAnel = 56, rAnel = apotema - 0.5;
       for (let i = 0; i < nAnel; i++) {
          const ang = (i / nAnel) * Math.PI * 2;
          const bx = Math.cos(ang) * rAnel, bz = Math.sin(ang) * rAnel;
-         if (bz > 0 && Math.abs(bx) < 6.5) continue;   // saída para a ponte
+         if (bz > 0 && Math.abs(bx) < W + 0.5) continue; // saída para o aterro
          if (bx < 0 && Math.abs(bz) < 6.5) continue;   // saída para o passadiço
          barreira(oct.x + bx - 0.45, oct.x + bx + 0.45, oct.z + bz - 0.45, oct.z + bz + 0.45, yT);
       }

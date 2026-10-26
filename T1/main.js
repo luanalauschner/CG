@@ -48,9 +48,9 @@ const interior  = createInterior(scene, collision);
 
 // -------------------------------------------------------------------------------------
 // 3) JOGADOR: CÂMERA EM PRIMEIRA PESSOA
-//    O jogador nasce sobre a ponte de acesso, olhando para o portão do castelo.
+//    O jogador nasce na ilha octogonal do acesso, olhando para o castelo.
 // -------------------------------------------------------------------------------------
-const spawn      = new THREE.Vector3(0, 0, -72 * ESCALA);
+const spawn      = new THREE.Vector3(0, 0, -100 * ESCALA); // centro da ilha octogonal
 const cameraCtrl = new CameraController(scene, renderer, collision, spawn);
 cameraCtrl.fpCamera.lookAt(0, 8 * ESCALA, -49 * ESCALA);
 
