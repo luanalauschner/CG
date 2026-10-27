@@ -99,16 +99,13 @@ export class CameraController {
       // --- PointerLockControls (olhar com o mouse) ------------------------------
       this.controls = new PointerLockControls(this.fpCamera, renderer.domElement);
 
-      this.modoOrbital     = false;
-      this._aguardandoLock = false; // ver alternarCameraOrbital()
+      this.modoOrbital = false;
 
       // --- Estado do teclado ----------------------------------------------------
       this.teclas = { frente: false, tras: false, esquerda: false, direita: false, correr: false };
 
       // --- Elementos de interface ----------------------------------------------
-      this.blocker      = document.getElementById('blocker');
-      this.instructions = document.getElementById('instructions');
-      this.crosshair    = document.getElementById('crosshair');
+      this.crosshair = document.getElementById('crosshair');
 
       this._registrarEventos();
       this._atualizarInterface();
@@ -119,7 +116,7 @@ export class CameraController {
       return this.modoOrbital ? this.orbitCamera : this.fpCamera;
    }
 
-   /** True quando o jogador está efetivamente jogando (mouse capturado). */
+   /** True quando o mouse está capturado (olhar com o mouse e disparar). */
    get ativo() {
       return !this.modoOrbital && this.controls.isLocked;
    }
@@ -128,15 +125,15 @@ export class CameraController {
    // EVENTOS
    // ---------------------------------------------------------------------------
    _registrarEventos() {
-      // Clique em qualquer ponto do painel captura o mouse e inicia o jogo
-      this.blocker.addEventListener('click', () => {
-         if (!this.modoOrbital) this.controls.lock();
+      // O jogo começa direto (sem painel). O navegador só permite capturar o
+      // mouse depois de um clique do usuário, então o primeiro clique em
+      // qualquer ponto da tela captura o mouse (esse clique não dispara a besta,
+      // ver ShootingSystem). Depois de um ESC, basta clicar de novo.
+      document.addEventListener('mousedown', () => {
+         if (!this.modoOrbital && !this.controls.isLocked) this.controls.lock();
       });
 
-      this.controls.addEventListener('lock', () => {
-         this._aguardandoLock = false;
-         this._atualizarInterface();
-      });
+      this.controls.addEventListener('lock',   () => this._atualizarInterface());
       this.controls.addEventListener('unlock', () => this._atualizarInterface());
 
       window.addEventListener('keydown', (e) => this._tecla(e, true));
@@ -164,7 +161,7 @@ export class CameraController {
          case 'KeyD': case 'ArrowRight': this.teclas.direita  = pressionada; break;
          case 'ShiftLeft': case 'ShiftRight': this.teclas.correr = pressionada; break;
          case 'Space':
-            if (pressionada && !event.repeat && this.ativo) this.pedidoPulo = BUFFER_PULO;
+            if (pressionada && !event.repeat && !this.modoOrbital) this.pedidoPulo = BUFFER_PULO;
             break;
          case 'KeyC':
             // Só alterna na descida da tecla (event.repeat evita repetição automática)
@@ -187,32 +184,20 @@ export class CameraController {
          this.teclas.esquerda = this.teclas.direita = this.teclas.correr = false;
          this.velH.set(0, 0, 0);
 
-         this._aguardandoLock = false;
          this.controls.unlock();      // libera o mouse para o OrbitControls
          this.orbit.enabled = true;
       } else {
          this.orbit.enabled = false;
-         // A captura do mouse é assíncrona (e o navegador impõe um intervalo
-         // mínimo entre sair e voltar a capturar). Enquanto ela não confirma,
-         // seguramos o painel de instruções; se falhar, ele aparece e basta clicar.
-         this._aguardandoLock = true;
+         // Tenta recapturar o mouse; se o navegador recusar (ele exige um
+         // intervalo mínimo entre sair e voltar), o próximo clique captura.
          this.controls.lock();
-         setTimeout(() => {
-            this._aguardandoLock = false;
-            this._atualizarInterface();
-         }, 1500);
       }
       this._atualizarInterface();
    }
 
-   /** Mostra/esconde mira e painel de instruções conforme o estado atual. */
+   /** A mira aparece sempre que a visão está em primeira pessoa. */
    _atualizarInterface() {
-      const jogando = this.ativo;
-      this.crosshair.style.display = jogando ? 'block' : 'none';
-
-      const mostrarPainel = !this.modoOrbital && !this.controls.isLocked && !this._aguardandoLock;
-      this.blocker.style.display      = mostrarPainel ? 'block' : 'none';
-      this.instructions.style.display = mostrarPainel ? '' : 'none';
+      this.crosshair.style.display = this.modoOrbital ? 'none' : 'block';
    }
 
    // ---------------------------------------------------------------------------
@@ -227,8 +212,8 @@ export class CameraController {
       const estavaNoChao = this.actor.onGround;
       const vyAntes = this.actor.velocityY;
 
-      // Mesmo sem o mouse capturado a gravidade continua agindo (passo zero)
-      this._mover(delta, this.controls.isLocked);
+      // O teclado funciona desde o início, mesmo antes de o mouse ser capturado
+      this._mover(delta, true);
 
       // Caiu na água (não deveria acontecer por causa das barreiras): volta ao início
       if (this.actor.position.y < this.collision.groundY + 0.3) this.renascer();
