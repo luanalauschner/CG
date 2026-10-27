@@ -10,7 +10,7 @@
  *      torres;
  *    - PÓRTICO do portão principal recortado via CSG (túnel em arco + arquivolta);
  *    - TORRES CILÍNDRICAS ACESSÍVEIS: portas em arco (CSG) a partir do caminho de
- *      ronda, câmara interna, escada e alçapão (CSG) até o terraço no topo.
+ *      ronda e câmara interna (CSG) ligando as muralhas que se encontram nela.
  * =====================================================================================
  */
 
@@ -44,7 +44,7 @@ const TORRE_CANTO = { raio: 8.5, altura: 30 }; // torres cilíndricas
 
 // Torres cilíndricas ACESSÍVEIS (T2). Medidas em unidades do castelo:
 //   piso da câmara = altura do caminho de ronda (entra-se pela muralha);
-//   laje entre yTeto e yTerraco, com um alçapão por onde passa a escada;
+//   laje (fechada) entre yTeto e yTerraco, separando a câmara do terraço;
 //   terraço no topo, cercado por um parapeito de (raio - rTerraco) de espessura.
 const TORRE_ACESSO = {
    rCamara:  6.5,  // raio interno da câmara (paredes de 2 unidades)
@@ -684,12 +684,11 @@ export function createCastle(scene, collision) {
    //    Cada torre é um cilindro maciço do qual a CSG subtrai:
    //      - a CÂMARA, no nível do caminho de ronda;
    //      - o TERRAÇO, no topo (sobra o anel do parapeito);
-   //      - o ALÇAPÃO na laje entre os dois, por onde passa a escada;
    //      - duas PORTAS em arco, uma para cada muralha que chega na torre;
    //      - as SETEIRAS do corpo da torre (nichos com fundo escuro).
-   //    Assim, saindo do caminho de ronda, o jogador entra pela porta, sobe a
-   //    escada interna e chega ao terraço. As torres também ligam os caminhos de
-   //    ronda das duas muralhas que se encontram nelas.
+   //    Assim, saindo do caminho de ronda, o jogador entra pela porta na câmara
+   //    e pode sair pela outra porta: as torres ligam os caminhos de ronda das
+   //    duas muralhas que se encontram nelas.
    // ============================================================================
    function construirTorresDeCanto() {
       // canto = MURALHA.meio: a torre fica centrada exatamente no cruzamento
@@ -743,34 +742,6 @@ export function createCastle(scene, collision) {
       cortes.push(solidoCSG(geometriaCilindro(A.rTerraco, 4, 28),
                             cx, A.yTerraco + 2, cz));
 
-      // --- Escada interna: ocupa o lado +sz da câmara e sobe no sentido +sx -----
-      const meioComp = 3.5;                 // meio comprimento da escada (em X)
-      const latEsc0 = 2.0, latEsc1 = 4.2;   // faixa da escada (em Z, a partir do centro)
-      const subida  = A.yTerraco - yPiso;
-      const degraus = contarDegraus(subida);
-      const paramEscada = {
-         eixo: 'x', inicio: cx - sx * meioComp, sentido: sx,
-         lat0: cz + Math.min(sz * latEsc0, sz * latEsc1),
-         lat1: cz + Math.max(sz * latEsc0, sz * latEsc1),
-         baseY: yPiso, degraus: degraus, espelho: subida / degraus,
-         piso: (2 * meioComp) / degraus, mureta: 0
-      };
-      escada(paramEscada);
-      rampaInvisivel(paramEscada);
-
-      // --- Alçapão na laje -------------------------------------------------------
-      // Vai de perto do pé da escada até depois do último degrau. O começo
-      // (x0) precisa deixar folga para a CABEÇA do jogador: se a abertura
-      // começasse muito adiante, na DESCIDA a cabeça bateria na borda de baixo
-      // da laje (o colisor trata isso como parede) e o jogador ficaria preso
-      // no terraço. Com x0 = -2.6 sobra ~0.9 de folga em toda a escada.
-      // Valores relativos ao centro (multiplicados pelos sinais do canto).
-      const alc = { x0: -2.6, x1: 3.8, z0: 1.7, z1: 4.5 };
-      const ax0 = cx + Math.min(sx * alc.x0, sx * alc.x1), ax1 = cx + Math.max(sx * alc.x0, sx * alc.x1);
-      const az0 = cz + Math.min(sz * alc.z0, sz * alc.z1), az1 = cz + Math.max(sz * alc.z0, sz * alc.z1);
-      cortes.push(solidoCSG(new THREE.BoxGeometry(ax1 - ax0, A.yTerraco - A.yTeto + 0.4, az1 - az0),
-                            (ax0 + ax1) / 2, (A.yTeto + A.yTerraco) / 2, (az0 + az1) / 2));
-
       // --- Portas em arco (uma para cada muralha) ---------------------------------
       // O corte atravessa toda a parede (do raio da câmara até o raio externo),
       // considerando a largura da porta e o deslocamento lateral em relação ao
@@ -814,8 +785,7 @@ export function createCastle(scene, collision) {
       cilindro(R + 0.7, 0.8, cx, Htor - 0.6, cz, matPedra, false);
 
       // Coroa de merlões sobre o parapeito: 'n' blocos distribuídos em círculo,
-      // cada um rotacionado para apontar radialmente para fora (decorativos: a
-      // colisão do parapeito é feita pelos colisores em anel, abaixo).
+      // cada um rotacionado para apontar radialmente para fora (decorativos).
       const n = 14;
       for (let i = 0; i < n; i++) {
          const ang = (i / n) * Math.PI * 2;
@@ -833,9 +803,8 @@ export function createCastle(scene, collision) {
       // torre é descrita por partes:
       //   - cilindro maciço do chão até o piso da câmara;
       //   - anel de caixas na parede da câmara (com as portas livres);
-      //   - laje do terraço: 4 caixas em volta do alçapão;
-      //   - anel de caixas no parapeito do terraço (até o topo dos merlões,
-      //     para o pulo não levar o jogador para fora da torre).
+      //   - laje: uma caixa (teto da câmara).
+      // O topo da torre não é acessível, então o parapeito não precisa de colisão.
       // =====================================================================
       const base = cilindro(R, yPiso, cx, 0, cz, matPedraEsc, true);
       base.visible = false;
@@ -845,36 +814,19 @@ export function createCastle(scene, collision) {
          ? (bx * pt.lado > 0 && Math.abs(bz - pt.lat) < P.largura / 2 + folga)
          : (bz * pt.lado > 0 && Math.abs(bx - pt.lat) < P.largura / 2 + folga));
 
-      const anel = (raio, tam, qtd, y0, y1, comPortas) => {
-         for (let i = 0; i < qtd; i++) {
-            const ang = (i / qtd) * Math.PI * 2;
-            const bx = Math.cos(ang) * raio, bz = Math.sin(ang) * raio;
-            if (comPortas && naPorta(bx, bz, tam / 2)) continue;
-            colisor(cx + bx - tam / 2, cx + bx + tam / 2, y0, y1,
-                    cz + bz - tam / 2, cz + bz + tam / 2);
-         }
-      };
-      anel((A.rCamara + R) / 2, R - A.rCamara, 26, yPiso, A.yTeto, true);
-      anel((A.rTerraco + R) / 2, R - A.rTerraco, 52, A.yTerraco,
-           Htor + 0.2 + MERLAO.altura, false);
+      // Anel de caixas na parede da câmara (pulando o corredor das portas)
+      const raioAnel = (A.rCamara + R) / 2, tam = R - A.rCamara, qtd = 26;
+      for (let i = 0; i < qtd; i++) {
+         const ang = (i / qtd) * Math.PI * 2;
+         const bx = Math.cos(ang) * raioAnel, bz = Math.sin(ang) * raioAnel;
+         if (naPorta(bx, bz, tam / 2)) continue;
+         colisor(cx + bx - tam / 2, cx + bx + tam / 2, yPiso, A.yTeto,
+                 cz + bz - tam / 2, cz + bz + tam / 2);
+      }
 
-      // Laje do terraço = quadrado inscrito na câmara menos o alçapão
+      // Laje (teto da câmara): quadrado inscrito na câmara
       const q = A.rCamara;
-      colisor(cx - q, ax0,    A.yTeto, A.yTerraco, cz - q, cz + q);
-      colisor(ax1,    cx + q, A.yTeto, A.yTerraco, cz - q, cz + q);
-      colisor(ax0,    ax1,    A.yTeto, A.yTerraco, cz - q, az0);
-      colisor(ax0,    ax1,    A.yTeto, A.yTerraco, az1,    cz + q);
-
-      // Guarda-corpo em volta do alçapão (nos dois lados compridos e no fundo),
-      // para o jogador não cair de volta na escada andando pelo terraço. Fica
-      // aberto apenas o lado onde a escada chega.
-      const gc = 0.25, hGc = A.yTerraco + 0.9;
-      const zIn0 = cz + Math.min(sz * (alc.z0 - gc), sz * alc.z0), zIn1 = cz + Math.max(sz * (alc.z0 - gc), sz * alc.z0);
-      const zEx0 = cz + Math.min(sz * alc.z1, sz * (alc.z1 + gc)), zEx1 = cz + Math.max(sz * alc.z1, sz * (alc.z1 + gc));
-      const xF0  = cx + Math.min(sx * (alc.x0 - gc), sx * alc.x0), xF1 = cx + Math.max(sx * (alc.x0 - gc), sx * alc.x0);
-      bloco(ax0, ax1, A.yTerraco, hGc, zIn0, zIn1, matDegrau);
-      bloco(ax0, ax1, A.yTerraco, hGc, zEx0, zEx1, matDegrau);
-      bloco(xF0, xF1, A.yTerraco, hGc, Math.min(zIn0, zEx0), Math.max(zIn1, zEx1), matDegrau);
+      colisor(cx - q, cx + q, A.yTeto, A.yTerraco, cz - q, cz + q);
    }
 
    /**

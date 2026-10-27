@@ -80,9 +80,8 @@ e abrir <http://localhost:8000/T1/T2.html>.
 - **Pórtico (CSG):** túnel em arco recortado no bloco central da portaria, com
   arquivolta (arco maior − arco menor).
 - **Torres cilíndricas acessíveis (CSG):** câmara interna no nível do caminho de
-  ronda, duas portas em arco (uma para cada muralha), escada interna, alçapão na
-  laje e terraço no topo com parapeito. As torres também ligam os caminhos de
-  ronda das muralhas que se encontram nelas.
+  ronda e duas portas em arco (uma para cada muralha). As torres ligam os
+  caminhos de ronda das muralhas que se encontram nelas.
 
 ### Iluminação e materiais
 - Luz direcional principal (Sol às 10h / Lua às 18h) com sombra em todos os
