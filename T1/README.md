@@ -18,7 +18,7 @@ do repositório:
 python3 -m http.server 8000
 ```
 
-e abrir <http://localhost:8000/T2/T2.html>.
+e abrir <http://localhost:8000/T1/T2.html>.
 
 ## Organização dos arquivos
 
