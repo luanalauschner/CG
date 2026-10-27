@@ -809,19 +809,27 @@ export function createCastle(scene, collision) {
       const base = cilindro(R, yPiso, cx, 0, cz, matPedraEsc, true);
       base.visible = false;
 
-      // Uma caixa do anel fica livre se estiver no corredor de alguma porta
+      // Uma caixa do anel fica livre se o seu CENTRO cair no vão de alguma porta.
+      // A folga é menor que meia caixa, então as caixas que sobram na lateral
+      // da porta chegam até a borda do vão (o batente) sem deixar frestas.
       const naPorta = (bx, bz, folga) => portas.some(pt => (pt.eixo === 'x')
          ? (bx * pt.lado > 0 && Math.abs(bz - pt.lat) < P.largura / 2 + folga)
          : (bz * pt.lado > 0 && Math.abs(bx - pt.lat) < P.largura / 2 + folga));
 
-      // Anel de caixas na parede da câmara (pulando o corredor das portas)
-      const raioAnel = (A.rCamara + R) / 2, tam = R - A.rCamara, qtd = 26;
-      for (let i = 0; i < qtd; i++) {
-         const ang = (i / qtd) * Math.PI * 2;
-         const bx = Math.cos(ang) * raioAnel, bz = Math.sin(ang) * raioAnel;
-         if (naPorta(bx, bz, tam / 2)) continue;
-         colisor(cx + bx - tam / 2, cx + bx + tam / 2, yPiso, A.yTeto,
-                 cz + bz - tam / 2, cz + bz + tam / 2);
+      // Parede da câmara: dois anéis de caixas pequenas e sobrepostas (espaçadas
+      // de 0.6, com 0.8 de lado), um junto à face interna e outro junto à face
+      // externa. Caixas grandes deixariam vãos largos ao lado das portas, por
+      // onde dava para atravessar a parede.
+      const tam = 0.8;
+      for (const raioAnel of [A.rCamara + tam / 2, R - tam / 2]) {
+         const qtd = Math.ceil((2 * Math.PI * raioAnel) / 0.6);
+         for (let i = 0; i < qtd; i++) {
+            const ang = (i / qtd) * Math.PI * 2;
+            const bx = Math.cos(ang) * raioAnel, bz = Math.sin(ang) * raioAnel;
+            if (naPorta(bx, bz, tam / 2 - 0.05)) continue;
+            colisor(cx + bx - tam / 2, cx + bx + tam / 2, yPiso, A.yTeto,
+                    cz + bz - tam / 2, cz + bz + tam / 2);
+         }
       }
 
       // Laje (teto da câmara): quadrado inscrito na câmara
@@ -1202,8 +1210,8 @@ export function createCastle(scene, collision) {
    // ============================================================================
 
    function construcaoEntrada(){
-      bloco(-6,  -4, -1, 10.0, -80, -75, matPedra, false);
-      meiaLua(-6,  -4, 10, 12, -80, -75, matPedra, false);
+      bloco(-6,  -4, -1, 10.0, -80, -75, matPedra);
+      meiaLua(-6,  -4, 10, 12, -80, -75, matPedra);
    }
    function construirIlhaEAcesso() {
       // --- Plano base: água ------------------------------------------------------
@@ -1244,12 +1252,16 @@ export function createCastle(scene, collision) {
       construcaoEntrada()
 
       // Octógono: CylinderGeometry de 8 lados, girado 22,5° para ficar com um lado
-      // virado para a ponte. O colisor é um cilindro com o raio do lado (apótema).
+      // virado para a ponte. O colisor é um cilindro com o raio EXTERNO (até os
+      // vértices): com o raio do lado (apótema) sobrariam faixas do octógono sem
+      // chão de colisão perto das saídas, por onde o jogador cairia na água. O
+      // excesso fora do octógono não é alcançável, pois o anel de barreiras
+      // (abaixo) fica por dentro dele.
       const octo = new THREE.Mesh(new THREE.CylinderGeometry(oct.raio, oct.raio, yT - yB, 8), matGramaAc);
       octo.position.set(oct.x, (yT + yB) / 2, oct.z);
       octo.rotation.y = Math.PI / 8;
       castelo.add(octo);
-      collision.addCylinder(octo, apotema * ESCALA);
+      collision.addCylinder(octo, oct.raio * ESCALA);
       const octoAreia = new THREE.Mesh(new THREE.CylinderGeometry(12, 12, yA - yT, 8), matAreia);
       octoAreia.position.set(oct.x, (yT + yA) / 2, oct.z);
       octoAreia.rotation.y = Math.PI / 8;
@@ -1269,17 +1281,25 @@ export function createCastle(scene, collision) {
       barreira(ILHA.x0, ILHA.x1, ILHA.z1 - 0.6, ILHA.z1, 0);
       barreira(ILHA.x0, ILHA.x0 + 0.6, ILHA.z0, ILHA.z1, 0);
       barreira(ILHA.x1 - 0.6, ILHA.x1, ILHA.z0, ILHA.z1, 0);
-      // Laterais do aterro
-      barreira(-W, -W + 0.6, zPonte1, ILHA.z0, yT);
-      barreira(W - 0.6, W, zPonte1, ILHA.z0, yT);
       // Contorno do octógono (anel de pequenas caixas), aberto para a ponte (+z)
-      // e para o passadiço (-x)
-      const nAnel = 56, rAnel = apotema - 0.5;
+      // e para o passadiço (-x). A quantidade de caixas depende do perímetro:
+      // com espaçamento de 0.8 e caixas de 0.9 elas se sobrepõem, então não
+      // sobra vão por onde o jogador (diâmetro 1.0 de mundo) possa passar.
+      const rAnel = apotema - 0.5;
+      const nAnel = Math.ceil((2 * Math.PI * rAnel) / 0.8);
+
+      // Laterais do aterro: entram um pouco no octógono, até encontrar o anel
+      // acima (senão sobra um vão no canto entre o aterro e o octógono)
+      const zFimAterro = oct.z + Math.sqrt(rAnel * rAnel - (W + 1) * (W + 1)) - 0.5;
+      barreira(-W, -W + 0.6, zFimAterro, ILHA.z0, yT);
+      barreira(W - 0.6, W, zFimAterro, ILHA.z0, yT);
       for (let i = 0; i < nAnel; i++) {
          const ang = (i / nAnel) * Math.PI * 2;
          const bx = Math.cos(ang) * rAnel, bz = Math.sin(ang) * rAnel;
-         if (bz > 0 && Math.abs(bx) < W + 0.5) continue; // saída para o aterro
-         if (bx < 0 && Math.abs(bz) < 6.5) continue;   // saída para o passadiço
+         // As saídas são um pouco MAIS ESTREITAS que o aterro/passadiço: assim as
+         // caixas das pontas cruzam as barreiras laterais deles e fecham os cantos.
+         if (bz > 0 && Math.abs(bx) < W - 0.3) continue;    // saída para o aterro
+         if (bx < 0 && Math.abs(bz) < 6 - 0.4) continue;    // saída para o passadiço
          barreira(oct.x + bx - 0.45, oct.x + bx + 0.45, oct.z + bz - 0.45, oct.z + bz + 0.45, yT);
       }
       // Laterais do passadiço
