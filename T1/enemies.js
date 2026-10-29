@@ -267,7 +267,7 @@ export class SistemaDeInimigos {
       }
 
       // Altura: dragões voam (sobem e descem), guardiões se arrastam no chão
-      if (tipo.flutua) ini.raiz.position.y += tipo.alturaVoo + Math.sin(ini.tempo * 2.2) * 0.35;
+      if (tipo.flutua) ini.raiz.position.y += tipo.alturaVoo + Math.sin(ini.tempo * 1.5) * 1.2;
 
       // Orientação: vira suavemente para a direção do movimento
       const dir = ini.raiz.position.clone().sub(anterior);

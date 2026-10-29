@@ -284,8 +284,8 @@ export class CameraController {
       desejada.addScaledVector(frente,  eixoFrente);
       desejada.addScaledVector(direita, eixoLado);
 
-      // Corrida só vale andando para frente (correr de ré/de lado fica estranho)
-      this.correndo = comControle && this.teclas.correr && eixoFrente > 0;
+      // Aumento da velocidade independente da direção e sentido para qual o player está andando
+      this.correndo = comControle && this.teclas.correr; //&& eixoFrente > 0;
       const vMax = VELOCIDADE * (this.correndo ? FATOR_CORRIDA : 1);
 
       // Normaliza para que andar na diagonal não seja mais rápido
@@ -449,6 +449,7 @@ export class ShootingSystem {
       this.dardos   = [];   // em voo ou cravados
       this.recarga  = RECARGA; // tempo desde o último disparo
       this.recuo    = 0;       // animação de recuo da besta
+      this.deslocamentoParede = 0;
 
       this.barraRecarga = document.querySelector('#recarga .valor');
 
@@ -501,6 +502,12 @@ export class ShootingSystem {
       const cabeca = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.09, 0.09), MAT.ferro);
       cabeca.position.set(0, -0.02, -0.55);
       besta.add(cabeca);
+
+      // Colisor na cabeça da coronha para evitar que a BESTA entre em paredes
+      this.cabecaColi = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.99, 0.99));
+      this.cabecaColi.position.set(0, -0.02, -0.55);
+      this.cabecaColi.visible = false;
+      besta.add(this.cabecaColi);
 
       // --- Estribo (para armar com o pé) -------------------------------------------
       const estribo = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.01, 6, 20, Math.PI), MAT.ferro);
@@ -634,13 +641,25 @@ export class ShootingSystem {
       }
       if (!estavaPronto && this.pronto) this.dardoCarregado.position.copy(this.posDardo);
 
+      // --- Verificação de colisão da arma contra paredes ---
+      const posicaoMundialBesta = new THREE.Vector3();
+      this.cabecaColi.getWorldPosition(posicaoMundialBesta);
+
+      const raioTeste = 0.30;
+      const hit = this.collision.sphereCollision(posicaoMundialBesta, raioTeste);
+
+      const zAlvoParede = hit ? 0.60 : 0.0;
+      const suavizacao = 15.0;
+
+      this.deslocamentoParede = THREE.MathUtils.lerp(this.deslocamentoParede, zAlvoParede, suavizacao * delta);
+
       // --- Recuo e balanço da besta -----------------------------------------------
       this.recuo = Math.max(0, this.recuo - delta * 5);
       const r = this.recuo * this.recuo;
       const bal = this.cameraCtrl.balanco;
       this.arma.position.set(this.posBase.x + bal * 0.6,
                              this.posBase.y - Math.abs(bal) * 0.5 + r * 0.02,
-                             this.posBase.z + r * 0.12);
+                             this.posBase.z + r * 0.12 + this.deslocamentoParede);
       this.arma.rotation.x = 0.04 + r * 0.18;
 
       // --- Dardos -----------------------------------------------------------------
