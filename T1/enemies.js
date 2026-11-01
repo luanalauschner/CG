@@ -4,14 +4,14 @@
  * =====================================================================================
  *  Dois modelos importados (OBJ + MTL, assets/objects), dois inimigos de cada:
  *
- *    GUARDIÃO DA FLORESTA (Florest_Guardian) - monstro-árvore que se ARRASTA pelo
+ *    MONSTRO DE GOSMA (Slime) - monstro de gosma que se ARRASTA pelo
  *        chão, balançando o corpo. Morre com 5 disparos.
  *    DRAGÃO AZUL (BlueDragon) - VOA/flutua, subindo e descendo e inclinando nas
  *        curvas. Morre com 3 disparos.
  *
  *  Posicionamento (exigido pelo enunciado):
  *    - um dragão patrulha o CAMINHO DE RONDA da muralha oeste;
- *    - um guardião fica DENTRO dos alojamentos (construção interna oeste);
+ *    - um slime fica DENTRO dos alojamentos (construção interna oeste);
  *    - os outros dois ficam no pátio.
  *
  *  Cada inimigo tem:
@@ -35,8 +35,8 @@ const CAMINHO_MODELOS = './assets/objects/';
 
 // Parâmetros de cada tipo de inimigo (medidas em unidades de MUNDO)
 const TIPOS = {
-   guardiao: {
-      arquivo: 'Florest_Guardian', tamanho: 3.6, vida: 5, velocidade: 1.8,
+   slime: {
+      arquivo: 'Slime', tamanho: 3.6, vida: 5, velocidade: 1.8,
       flutua: false, corLuz: "rgb(120,255,110)"
    },
    dragao: {
@@ -51,9 +51,9 @@ const TIPOS = {
 //   'chao'   : altura do piso sob o inimigo (onde a chave cai quando ele morre)
 const INSTANCIAS = [
    { tipo: 'dragao',   rota: 'linha',   a: [-39.6, 25, -22], b: [-39.6, 25, 22], chao: 25 }, // caminho de ronda oeste
-   { tipo: 'guardiao', rota: 'linha',   a: [-25, 0, -8],     b: [-25, 0, 8],     chao: 0 },  // dentro dos alojamentos
+   { tipo: 'slime', rota: 'linha',   a: [-25, 0, -8],     b: [-25, 0, 8],     chao: 0 },  // dentro dos alojamentos
    { tipo: 'dragao',   rota: 'circulo', centro: [0, 4, -18], raio: 7,            chao: 0 },  // pátio (voando)
-   { tipo: 'guardiao', rota: 'linha',   a: [-12, 0, -27],    b: [10, 0, -27],    chao: 0 }   // pátio norte
+   { tipo: 'slime', rota: 'linha',   a: [-12, 0, -27],    b: [10, 0, -27],    chao: 0 }   // pátio norte
 ];
 
 const BARRA = { largura: 2.0, altura: 0.2, borda: 0.05 };
