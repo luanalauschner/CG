@@ -1,18 +1,3 @@
-/**
- * =====================================================================================
- *  T2 - MODELAGEM DO AMBIENTE
- * =====================================================================================
- *  Novidades do T2 (frente "Ambiente - Ponte e elementos criados via CSG"):
- *    - Castelo sobre uma ILHA elevada em relação ao plano base (água);
- *    - ACESSO externo (ponte -> ilha octogonal -> passadiço até a margem), em verde
- *      e areia, em altura ligeiramente diferente da ilha (evita Z-fighting);
- *    - SETEIRAS (base reta + topo arredondado) recortadas via CSG nas muralhas e
- *      torres;
- *    - PÓRTICO do portão principal recortado via CSG (túnel em arco + arquivolta);
- *    - TORRES CILÍNDRICAS ACESSÍVEIS: portas em arco (CSG) a partir do caminho de
- *      ronda e câmara interna (CSG) ligando as muralhas que se encontram nela.
- * =====================================================================================
- */
 
 import * as THREE from 'three';
 import { setDefaultMaterial } from '../libs/util/util.js';
@@ -217,7 +202,7 @@ export function createCastle(scene, collision) {
 
    /**
     * Cria um paralelepípedo a partir dos seus LIMITES (mínimo/máximo em cada eixo).
-    * Trabalhar com limites (e não com centro+tamanho) deixa o código do layout
+    * Trabalhar com limites deixa o código do layout
     * muito mais legível e faz o registro do colisor ser exato.
     *
     * @param {number} x0,x1 limites mínimo/máximo no eixo X
@@ -952,7 +937,6 @@ export function createCastle(scene, collision) {
          g.position.set(0, y, 0);
          grade.add(g);
       }
-      // (a moldura de pedra do T1 foi substituída pela arquivolta CSG, acima)
       
 
       const portaPrincipal = new AnimatedDoor({
